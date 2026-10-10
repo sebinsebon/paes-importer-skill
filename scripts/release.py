@@ -5,8 +5,8 @@ import json
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 EXCLUDED = {'.git', '.venv', 'tmp', '__pycache__', 'EnsayosPaessedOutput', '.pytest_cache', 'Output', '.work'}
-DIRECTORIES = {'scripts', 'shared', 'viewer', 'references', 'tests', 'examples', 'docs', '.github'}
-ROOT_FILES = {'SKILL.md', 'README.md', 'AGENTS.md', 'LICENSE', 'NOTICE.md', 'requirements.txt', 'requirements-dev.txt', 'run.ps1', '.gitignore', '.gitattributes'}
+DIRECTORIES = {'scripts', 'shared', 'viewer', 'references'}
+ROOT_FILES = {'SKILL.md', 'README.md', 'LICENSE', 'NOTICE.md', 'requirements.txt', 'run.ps1'}
 
 def records():
     paths = sorted(ROOT.rglob('*'), key=lambda p: p.relative_to(ROOT).as_posix())

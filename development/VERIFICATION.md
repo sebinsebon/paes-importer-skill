@@ -1,5 +1,7 @@
 # Verificación de implementación
 
+> Registro histórico de desarrollo; no forma parte de las instrucciones de uso ni del ZIP distribuible. Las cifras corresponden a la fecha original del informe.
+
 Comprobación local del bundle portable, 2026-10-10. Se utilizan únicamente fuentes ficticias generadas por examples/synthetic.py. No se ejecutan modelos ni se usan PDFs privados o resultados históricos como fixtures.
 
 La suite recorre las rutas con pauta completa/parcial/ausente; consentimiento web; autorrevisión; auditoría de todo el ensayo o solo faltantes; conservación exacta del baseline; evidencia ampliada; lectura completa; procedencia de respuestas/explicaciones; fórmulas/tablas/recortes y alternativas visuales; hashes/ZIP; destinos; reanudación y rechazo de cambios.

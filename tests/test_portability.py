@@ -1,5 +1,6 @@
 """Exercise the distributed bundle without a checkout or a matching working directory."""
 import json
+import re
 import os
 import runpy
 import subprocess
@@ -45,8 +46,41 @@ class PortabilityTests(unittest.TestCase):
             self.assertFalse((skill / '.venv').exists())
             run(skill / 'scripts/release.py')
             run(skill / 'scripts/importer.py', '--help')
-            # Run only the importer suite, avoiding recursion into this bundle test.
-            run('-m', 'unittest', 'discover', '-s', skill / 'tests', '-p', 'test_importer.py', '-v')
+            # The distributed skill includes no development inputs.
+            forbidden = {'tests', 'examples', 'docs', 'development', '.github',
+                         'AGENTS.md', 'requirements-dev.txt', '.gitignore', '.gitattributes'}
+            self.assertTrue(all(not (skill / name).exists() for name in forbidden))
+            self.assertTrue((skill / 'references/hosts.md').is_file())
+            # Agent-facing links must resolve inside the extracted bundle.
+            for markdown in [skill / 'README.md', skill / 'SKILL.md',
+                             *(skill / 'references').rglob('*.md'),
+                             *(skill / 'shared/references').rglob('*.md')]:
+                content = markdown.read_text(encoding='utf-8')
+                for target in re.findall(r'\]\(([^)]+)\)', content):
+                    if target.startswith(('http://', 'https://', '#', 'mailto:')):
+                        continue
+                    path = target.split('#', 1)[0]
+                    if path:
+                        self.assertTrue((markdown.parent / path).is_file(),
+                                        f'Broken bundled link: {markdown}: {target}')
+            run(skill / 'scripts/verify.py', '--help')
+            # Smoke test: create a synthetic PDF outside the bundle and prepare it.
+            sources = workspace / 'sources'
+            run(ROOT / 'examples/synthetic.py', '--output', sources)
+            capabilities = workspace / 'capabilities.json'
+            capabilities.write_text(json.dumps({
+                'pdf_visual': True, 'crop': True, 'execute': True,
+                'zip': True, 'validate': True,
+                'observation': 'Synthetic fixtures only, not an AI reading claim'
+            }), encoding='utf-8')
+            result = run(skill / 'scripts/importer.py', 'prepare',
+                         '--exam', sources / 'synthetic-m1.pdf',
+                         '--solution', sources / 'synthetic-key.pdf',
+                         '--host', 'cli', '--client', 'bundle-smoke-test',
+                         '--session-id', 'synthetic-smoke-test',
+                         '--destination', 'custom', '--output-root', workspace / 'output',
+                         '--capabilities', capabilities, '--run-id', 'bundle-smoke-test')
+            self.assertTrue((Path(json.loads(result.stdout)['run']) / 'catalog.json').is_file())
 
     def test_setup_rejects_missing_node_before_creating_environment(self):
         with patch.object(sys, 'argv', ['setup.py']), patch('shutil.which', return_value=None):

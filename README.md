@@ -4,6 +4,8 @@ Skill portable para **PAES Matemática M1** desde PDF, con solucionario opcional
 
 Repositorio: https://github.com/sebinsebon/paes-importer-skill
 
+**Para el agente:** comienza por [SKILL.md](SKILL.md) y sigue solo las referencias operativas que necesite ([workflow](references/workflow.md), [interfaces](references/interfaces.md), [audit](references/audit.md) y [compatibilidad](references/hosts.md)). Los informes y tests de mantenimiento del repositorio no son parte de la skill distribuible.
+
 ## Prompts listos para usar
 
 **Chat web**
@@ -44,7 +46,7 @@ Los ejemplos con rutas relativas parten de la carpeta que contiene SKILL.md. `py
 
 Para trasladar o compartir la skill, utiliza el clon o el bundle completo. `.venv` pertenece a cada instalación: sus ejecutables y scripts de activación pueden guardar rutas absolutas y debe recrearse en la nueva ubicación con setup.py, conservando primero el entorno anterior fuera de `.venv` si existe. No copies entornos virtuales entre equipos. Los PDFs y las salidas se eligen explícitamente; las ejecuciones guardan sus rutas originales para reanudación y auditoría, por lo que trasladar el código no migra ejecuciones existentes.
 
-El agente puede leer [SKILL.md](SKILL.md) desde esta carpeta. Para descubrimiento en Codex/Claude Code, copia el bundle completo bajo .agents/skills/paes-importer o .claude/skills/paes-importer; prepara dependencias allí o usa otro Python instalado. No es necesario instalar globalmente. [Compatibilidad](docs/COMPATIBILITY.md).
+El agente puede leer [SKILL.md](SKILL.md) desde esta carpeta. Para descubrimiento en Codex/Claude Code, copia el bundle completo bajo .agents/skills/paes-importer o .claude/skills/paes-importer; prepara dependencias allí o usa otro Python instalado. No es necesario instalar globalmente. [Compatibilidad](references/hosts.md).
 
 ## Operación y salida
 
@@ -65,26 +67,21 @@ Documentos/EnsayosPaessedOutput/
 
 Descargas usa igual estructura; ruta personalizada sustituye la raíz EnsayosPaessedOutput, sin agregarla otra vez. Windows respeta carpetas redirigidas y Linux XDG. No sobrescribir ejecuciones. ZIP lleva final.json, manifest.json y PNG usados; no PDF original ni .work.
 
-## Pruebas y bundle para chat
+## Crear el ZIP de la skill para compartir
 
-Para preparar dependencias de desarrollo en un clon nuevo: python -B scripts/setup.py --dev. Si ya hay entorno, usar su Python con -m pip install -r requirements-dev.txt.
-
-Con el Python preparado:
+Con Python y Node.js preparados en esta instalación:
 
 ~~~sh
-python -B -m unittest discover -s tests -v
 python -B scripts/release.py
 python -B scripts/make_bundle.py --output /ruta/absoluta/paes-importer.zip
 ~~~
 
-Pruebas con PDFs ficticios: render, crops, modos, pauta, cotejo, auditoría, reanudación y paquete. La prueba de portabilidad extrae el bundle en una ruta con espacios y acentos y ejecuta la suite del importador desde otra carpeta. No necesitan PDFs privados, outputs históricos ni modelos. [Verificación](docs/VERIFICATION.md). [Auditoría de portabilidad](docs/PORTABILITY.md).
-
-Fuentes ficticias para demos: python -B examples/synthetic.py --output tmp/demo. No son ensayos reales ni resultados de IA. El release fija hashes; un cambio intencional exige regenerar con python -B scripts/release.py --write y preparar nuevas ejecuciones. No cambiar hashes para reanudar silenciosamente una corrida vieja.
+El bundle contiene las instrucciones, herramientas y recursos operativos de la skill. No incluye tests, ejemplos sintéticos, informes de desarrollo, configuraciones de CI ni entornos virtuales. Cada anfitrión necesita Python/Node y dependencias disponibles; el ZIP no instala herramientas ni garantiza lectura visual.
 
 ## Límites y licencia
 
 Solo M1. Formato histórico paessed-benchmark/0.1.0 compatible con el lector local; no integra PAESSED Web. Las declaraciones de lectura y revisión no autentican comprensión o independencia. Tokens/costo no disponibles son null; no derivar precisión de estados verified.
 
-Pruebas sintéticas no acreditan funcionamiento real de todos los chats/modelos/CLI. [Compatibilidad y pruebas manuales](docs/COMPATIBILITY.md). [Decisiones y mejoras](docs/DECISIONS.md).
+Pruebas sintéticas no acreditan funcionamiento real de todos los chats/modelos/CLI. [Compatibilidad por entorno](references/hosts.md).
 
 Código MIT. JSZip/KaTeX preservan licencias y atribuciones: [NOTICE](NOTICE.md). No agregar PDFs privados, resultados derivados, recortes de ensayos ni credenciales.

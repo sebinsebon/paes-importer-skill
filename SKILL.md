@@ -10,6 +10,13 @@ metadata:
 
 Recibe un ensayo PDF y, opcionalmente, su solucionario. Entrega el ZIP del contrato local PAESSED; no garantiza todavía integración con PAESSED Web ni corrección matemática universal. Los scripts no llaman a una API de IA: tú interpretas y resuelves con tus herramientas disponibles.
 
+## Archivos que debe leer el agente
+
+- **Entrada:** este `SKILL.md` y [workflow.md](references/workflow.md).
+- **Al construir preguntas:** [interfaces.md](references/interfaces.md) y [contrato de contenido](shared/references/content-contract.md).
+- **Solo si hace falta:** [audit.md](references/audit.md) para auditoría independiente, y [hosts.md](references/hosts.md) para particularidades del entorno.
+- Usa los scripts y validadores incluidos. No necesitas consultar informes de desarrollo ni ejecutar los tests para importar un ensayo.
+
 ## Antes de procesar
 
 1. Lee [el flujo operativo](references/workflow.md). Localiza la carpeta que contiene este SKILL.md y resuelve desde ella las referencias, scripts, schemas y validadores incluidos. Comprueba Python/Node y las dependencias según [instalación](README.md#instalación). No necesitas otros proyectos. Un enlace a GitHub no ejecuta el código; si no puedes acceder al repositorio, solicita al usuario el bundle completo de la skill.

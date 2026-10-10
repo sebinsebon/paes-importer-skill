@@ -3,22 +3,6 @@
   "protocol_version": "0.3.0",
   "files": [
     {
-      "path": ".gitattributes",
-      "sha256": "2e2500252e2729819e5bee4555904eb0dd920ef526803f4745b169802717bdbf"
-    },
-    {
-      "path": ".github/workflows/test.yml",
-      "sha256": "0cca45e08ead26fd0bce8814e785a66a76b51115d45dd4e8aa89a7138c2bfad6"
-    },
-    {
-      "path": ".gitignore",
-      "sha256": "1bc69dd331f888555578ae8dbade254eb0fde1c5948f269d43858d6475fa2b41"
-    },
-    {
-      "path": "AGENTS.md",
-      "sha256": "1f37dbd2c38e255ec21b2c353978396a8df65a789cd7f75d00ad349748d6c13d"
-    },
-    {
       "path": "LICENSE",
       "sha256": "10e7f42e53ffb4146f402d941b07ce1e060cb2e15efe01502b31b21e06ed90d6"
     },
@@ -28,35 +12,19 @@
     },
     {
       "path": "README.md",
-      "sha256": "4f0edaaa65548540ae42e32f0ecd9a9934a7c76c9f9492bcd2e5ed34d4ab61d7"
+      "sha256": "37ef1e4cc7d6b900072780c980740d46b3554828cd08acbe417670072f232cdb"
     },
     {
       "path": "SKILL.md",
-      "sha256": "0f23b274ef7d48157b96769a4dddc4c0001fc7b2c19c27a0ade922f567bff057"
-    },
-    {
-      "path": "docs/COMPATIBILITY.md",
-      "sha256": "1e26f5cef11f69351f4b671c87b2d91fb798ba41b5e0618b95f455b0b050cd8c"
-    },
-    {
-      "path": "docs/DECISIONS.md",
-      "sha256": "3a657f4dcca9bd6b57c4244866a94c39a31239e37816b75f751c3985de831bb5"
-    },
-    {
-      "path": "docs/PORTABILITY.md",
-      "sha256": "d689ebf343a9b6dd8b45a007bdaf12cb9df0b4d3ed096151305d75d86da10ad7"
-    },
-    {
-      "path": "docs/VERIFICATION.md",
-      "sha256": "990270a9c17431ba62fb32e62684d3f4f2e0a434f8d16ad1fe28cabd7c3311a6"
-    },
-    {
-      "path": "examples/synthetic.py",
-      "sha256": "bd8e88f21d11c00d88c9442d8bc069cee2b8a8f85717432e807aa96559a5c1aa"
+      "sha256": "7bf1ec6d8fc0094d8498a8ca01e12df5b40ca2f78c4cb80ebac5289473d52044"
     },
     {
       "path": "references/audit.md",
       "sha256": "994c60675c83814416eec9c693d80ee824dc60b448e18e52c185e9c09b141ced"
+    },
+    {
+      "path": "references/hosts.md",
+      "sha256": "842f81984a4e21d6bbac92083965f1537560a26c9302246d585860c3a1a91401"
     },
     {
       "path": "references/interfaces.md",
@@ -65,10 +33,6 @@
     {
       "path": "references/workflow.md",
       "sha256": "a9d3e25795bd0378b36bfb1076c8cf28856e85f98744bde0ccfdfa31e6e35658"
-    },
-    {
-      "path": "requirements-dev.txt",
-      "sha256": "4c2355efda0785f076e7f0f6b5d5342ad9eb3c5b1479497024e519353e3b8f5b"
     },
     {
       "path": "requirements.txt",
@@ -92,7 +56,7 @@
     },
     {
       "path": "scripts/release.py",
-      "sha256": "8cecf961d56f6b243ade3f26eb9f7650c89f9d856e3d1e1537770ceb45426bc8"
+      "sha256": "885d588e5dfd211124921dcfc0b6f57959d15904c6ccebfbe982c0adcb94d680"
     },
     {
       "path": "scripts/setup.py",
@@ -145,14 +109,6 @@
     {
       "path": "shared/scripts/pipeline.py",
       "sha256": "529731e7552bd70ef889a1eb13746c0848fec12b8a745f5253633cdc150f534a"
-    },
-    {
-      "path": "tests/test_importer.py",
-      "sha256": "3c97805f1ac6b6733c9bde102f43907ae7ccae31c1c80b85d316510fc717e3b2"
-    },
-    {
-      "path": "tests/test_portability.py",
-      "sha256": "01e5dba8dd2f743d6f634cd75f624ecb8d3d92dac7710766977c897695b7ca43"
     },
     {
       "path": "viewer/package-reader.js",

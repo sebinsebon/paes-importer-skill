@@ -1,4 +1,4 @@
-# Compatibilidad
+# Compatibilidad de anfitriones
 
 SKILL.md funciona como instrucciones cuando el anfitrión puede leer las referencias y ejecutar el bundle. Instalar una skill no garantiza lectura visual ni otras capacidades.
 
@@ -18,6 +18,3 @@ Claude Code: bundle completo bajo .claude/skills/paes-importer o lectura explíc
 
 Chat web: obtener bundle, ejecutar Python/Node en workspace cuando estén disponibles, recortar y entregar enlace ZIP. Si no dispone de dependencias y no puede prepararlas, informar impedimento. Esperar consentimiento cuando falte pauta. Sin acceso al equipo, el destino local se elige al descargar.
 
-## Prueba manual posterior
-
-Usar M1/pautas autorizados y ejecuciones separadas por anfitrión. Comprobar pauta completa/parcial/ausente, procedencia, visuales, cobertura y paquete. Observar pregunta de destino, consentimiento, contexto y subagentes. Registrar herramientas/modelo/sesión reales, uso disponible y errores (medidas desconocidas null). Revisar contra fuentes con evaluador distinto; no usar informes internos como pauta externa. Actualizar tabla solo con evidencia. No ejecutar corridas reales durante implementación.

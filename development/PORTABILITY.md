@@ -1,5 +1,7 @@
 # Auditoría de portabilidad
 
+> Registro histórico de desarrollo; no forma parte de las instrucciones de uso ni del ZIP distribuible. Las cifras corresponden a la fecha original del informe.
+
 Alcance: código, instrucciones, referencias, schemas, viewer, bibliotecas incluidas, instalación, empaquetado, tests y configuración de CI. El bundle es independiente de otros proyectos. Fecha: 2026-10-10.
 
 ## Dependencias reales
@@ -36,4 +38,4 @@ python -B scripts/release.py
 python -B -m unittest discover -s tests -v
 ```
 
-test_portability.py genera el bundle con make_bundle.py, comprueba su inventario, lo extrae sin .git ni .venv en una ruta con espacios y acentos y ejecuta release.py, la CLI y todos los tests del importador desde una carpeta distinta. El subproceso utiliza explícitamente el Python de prueba con las dependencias instaladas y elimina PYTHONPATH. Solo usa PDFs sintéticos. Los resultados y límites de la ejecución local se registran en [VERIFICATION.md](VERIFICATION.md).
+test_portability.py genera el bundle con make_bundle.py, comprueba su inventario, lo extrae sin .git ni .venv en una ruta con espacios y acentos y ejecutaba release.py, la CLI y los tests del importador desde una carpeta distinta durante la auditoría original. El nuevo bundle únicamente necesita ejecutar los comandos y recursos operativos; los tests permanecen en GitHub. El subproceso utiliza explícitamente el Python de prueba con las dependencias instaladas y elimina PYTHONPATH. Solo usa PDFs sintéticos. Los resultados y límites de la ejecución local se registran en [VERIFICATION.md](VERIFICATION.md).
