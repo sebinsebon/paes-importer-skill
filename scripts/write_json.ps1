@@ -4,13 +4,16 @@ param(
     [string]$WorkspaceRoot
 )
 $ErrorActionPreference = 'Stop'
-if (-not $WorkspaceRoot) { $WorkspaceRoot = Join-Path $PSScriptRoot '..' }
+if (-not $WorkspaceRoot) { throw 'Supply an explicit external WorkspaceRoot.' }
 # Question contents never become PowerShell source or command arguments.
 $sourceFile = (Resolve-Path -LiteralPath $InputPath).Path
 $targetFile = [IO.Path]::GetFullPath($OutputPath)
 $workspacePath = (Resolve-Path -LiteralPath $WorkspaceRoot).Path
 if (-not (Test-Path -LiteralPath $workspacePath -PathType Container)) { throw 'WorkspaceRoot must be an existing directory.' }
 $workspacePath = [IO.Path]::GetFullPath($workspacePath)
+$runtimePath = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..')).TrimEnd([IO.Path]::DirectorySeparatorChar)
+$runtimeBoundary = $runtimePath + [IO.Path]::DirectorySeparatorChar
+if ($workspacePath.TrimEnd([IO.Path]::DirectorySeparatorChar) -eq $runtimePath -or $workspacePath.StartsWith($runtimeBoundary, [StringComparison]::OrdinalIgnoreCase) -or $targetFile.StartsWith($runtimeBoundary, [StringComparison]::OrdinalIgnoreCase)) { throw 'Transport output and workspace must be outside the skill installation.' }
 if ($workspacePath.TrimEnd([IO.Path]::DirectorySeparatorChar) -eq [IO.Path]::GetPathRoot($workspacePath).TrimEnd([IO.Path]::DirectorySeparatorChar)) { throw 'A filesystem root cannot be a workspace.' }
 $boundary = $workspacePath.TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
 if (-not $targetFile.StartsWith($boundary, [StringComparison]::OrdinalIgnoreCase)) {

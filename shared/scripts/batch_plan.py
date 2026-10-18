@@ -12,7 +12,7 @@ def blocks_with_children(blocks):
                 for cell in row:
                     yield from blocks_with_children(cell)
 
-def plan_batches(candidate, max_questions=5, max_characters=24000):
+def plan_batches(candidate, max_questions=5, max_characters=24000, *, selection=None, route=None):
     if type(max_questions) is not int or not 1 <= max_questions <= 10:
         raise ValueError('max_questions must be 1..10')
     if type(max_characters) is not int or max_characters < 1:
@@ -23,6 +23,10 @@ def plan_batches(candidate, max_questions=5, max_characters=24000):
         raise ValueError('Duplicate question ID')
     assets = {a['id']: a for a in candidate.get('assets', [])}
     sources = {s['id']: s for s in candidate['sources']}
+    mapping = {q['id']: q for q in (selection or {}).get('expected_questions', [])}
+    keys = {e['question_id']: e for e in ((route or {}).get('answer_key') or {}).get('entries', [])}
+    if selection is not None and set(mapping) != set(ids):
+        raise ValueError('Batch plan requires exact frozen selection coverage')
     index = []
     page_index = {}
     for question in questions:
@@ -35,10 +39,22 @@ def plan_batches(candidate, max_questions=5, max_characters=24000):
             raise ValueError('Question references a missing asset')
         if question['source_id'] not in sources:
             raise ValueError('Question references a missing source')
-        pages = {(question['source_id'], r['page']) for r in question['regions']}
-        context_scope = 'question_regions' if pages else 'full_source_fallback'
+        observed = mapping.get(question['id'], {})
+        inventory = observed.get('content_inventory', [])
+        regions = observed.get('regions') or [r for values in observed.get('source_fields', {}).values() for r in values]
+        pages = {(question['source_id'], r['page']) for r in regions or question['regions']}
+        context_scope = 'frozen_source_map' if regions else 'question_regions' if pages else 'full_source_fallback'
         if not pages:
-            pages = {(question['source_id'], page) for page in range(1, sources[question['source_id']]['page_count'] + 1)}
+            if selection is not None:
+                if not observed.get('mapping_pending'):
+                    raise ValueError(question['id']+': map source regions before batch planning')
+                pages = {(question['source_id'], observed['page'])}
+                context_scope = 'mapping_pending'
+            else:
+                pages = {(question['source_id'], page) for page in range(1, sources[question['source_id']]['page_count'] + 1)}
+        key = keys.get(question['id'])
+        if key:
+            pages.update((key['source_id'], p) for p in key.get('pages', [key['page']]))
         pages.update((assets[aid]['source_id'], assets[aid]['page']) for aid in used)
         for sid, page in pages:
             if sid not in sources or type(page) is not int or not 1 <= page <= sources[sid]['page_count']:
@@ -48,15 +64,19 @@ def plan_batches(candidate, max_questions=5, max_characters=24000):
         cells = sum(len(row) for table in tables for row in table['rows'])
         math_characters = sum(len(b['latex']) for b in blocks if b['type'] == 'math')
         complexity = len(used) * 3 + len(tables) * 3 + cells // 8 + math_characters // 300 + max(0, len(pages) - 1) * 2
+        observed_complexity = sum(i['count'] * 3 for i in inventory if i['type'] in ('image','table'))
+        complexity = max(complexity, observed_complexity + max(0, len(pages)-1)*2)
         cap = 1 if complexity >= 8 else min(2, max_questions) if complexity >= 3 else max_questions
         resources = [assets[aid] for aid in used]
-        context = {'question': question, 'assets': resources, 'pages': [{'source_id': sid, 'page': page} for sid, page in sorted(pages)],
+        context = {'question': question, 'source_map': observed, 'answer_key': key,
+                   'assets': resources, 'pages': [{'source_id': sid, 'page': page} for sid, page in sorted(pages)],
                    'sources': [sources[sid] for sid in sorted({sid for sid, _ in pages} | {question['source_id']})]}
         count = len(json.dumps(context, ensure_ascii=False, separators=(',', ':')))
         index.append({'question_id': question['id'], 'source_id': question['source_id'], 'number': question['number'],
             'pages': [{'source_id': sid, 'page': page} for sid, page in sorted(pages)], 'source_context_scope': context_scope, 'asset_ids': used,
             'content_sha256': content_hash(question, candidate), 'context_sha256': hashlib.sha256(json.dumps(context, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8')).hexdigest(),
-            'serialized_characters': count, 'complexity': complexity, 'question_limit': cap})
+            'serialized_characters': count, 'complexity': complexity, 'question_limit': cap,
+            'mapping_pending': bool(observed.get('mapping_pending'))})
     batches = []
     current = []
     current_characters = 0
@@ -87,5 +107,6 @@ def plan_batches(candidate, max_questions=5, max_characters=24000):
     return {'format': 'paessed-batch-plan', 'schema_version': '0.1.0', 'max_questions': max_questions,
         'max_characters': max_characters, 'batches': batches, 'question_index': index,
         'page_index': [{'source_id': sid, 'page': page, 'question_ids': qids} for (sid,page),qids in sorted(page_index.items())],
+        'pending_mapping_question_ids': [q['question_id'] for q in index if q['mapping_pending']],
         'context_policy': 'Never truncate a question or omit its referenced pages/assets; an oversized question remains alone.',
         'token_estimate': None, 'savings': 'not_measured'}

@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT / 'shared/scripts'))
 from lab import configure_workspace, artifact_path, bbox, no_links
 from package_io import validate, inspect_package
 from pdf_assets import render_crop
+from runtime_environment import external_directory, external_path
 import pypdfium2 as pdfium
 
 def digest_bytes(blob):
@@ -42,7 +43,7 @@ const identity=document.getElementById('identity');identity.textContent=data.exa
 function el(tag,text,parent){const node=document.createElement(tag);if(text!==undefined)node.textContent=text;if(parent)parent.append(node);return node;}
 function render(parent,blocks){PaessedBlocks.renderBlocks(parent,blocks,{assetUrls:assets,katex:window.katex,onError(error){el('p','Error KaTeX: '+error.message,document.getElementById('errors'));}});}
 for(const q of data.questions){
- const section=el('section',undefined,document.getElementById('questions'));section.className='question';section.id='question-'+q.id;
+ const section=el('section',undefined,document.getElementById('questions'));section.className='question';section.id='question-'+q.id;section.dataset.questionId=q.id;
  el('h2','Pregunta '+q.number+' · '+q.id,section);
  const meta=el('p','Fidelidad declarada: '+q.fidelity.status+' · Respuesta: '+(q.answer.label===null?'pendiente':q.answer.label)+' ('+q.answer.status+')',section);meta.className='meta';
  if(q.curriculum)el('p','Currículo: '+(q.curriculum.eje??'pendiente')+' / '+(q.curriculum.subeje??'pendiente')+' / '+q.curriculum.en_temario,section).className='meta';
@@ -56,7 +57,7 @@ for(const q of data.questions){
   function outline(r,kind,label){const region=el('div',undefined,frame);region.className='region '+kind;region.title=label;region.style.left=(100*r.bbox[0]/p.width)+'%';region.style.top=(100*r.bbox[1]/p.height)+'%';region.style.width=(100*(r.bbox[2]-r.bbox[0])/p.width)+'%';region.style.height=(100*(r.bbox[3]-r.bbox[1])/p.height)+'%';}
   for(const r of q.regions.filter(r=>q.source_id===p.source_id&&r.page===p.page))outline(r,'','Pregunta');
   for(const a of usedAssets.filter(a=>a.source_id===p.source_id&&a.page===p.page))outline(a,'asset',a.id);
-  for(const item of review.requirements[q.id]||[])for(const r of item.regions.filter(r=>q.source_id===p.source_id&&r.page===p.page))outline(r,'required',item.field+' / '+item.type);
+  for(const item of review.requirements[q.id]||[])for(const r of item.regions.filter(r=>(item.source_id||q.source_id)===p.source_id&&r.page===p.page))outline(r,'required',item.field+' / '+item.type);
  }
  el('h3','Contenido importado',result);render(el('div',undefined,result),q.stem);
  for(const option of q.options){const row=el('div',undefined,result);row.className='option';el('strong',option.label,row);render(el('div',undefined,row),option.blocks);}
@@ -64,11 +65,14 @@ for(const q of data.questions){
  if(usedAssets.length)el('h3','Recortes: comprobar figuras completas y contenido vecino',result);
  for(const a of usedAssets){const crop=el('div',undefined,result);crop.className='crop';el('p',a.id+' / '+a.source_id+' p.'+a.page+' / '+JSON.stringify(a.bbox),crop).className='meta';const img=el('img',undefined,crop);img.src=a.path;img.alt=a.id;}
 }
+window.__PAES_REVIEW_READY__=true;
 </script></body></html>'''
 
 def safe_output(output, workspace=None):
-    output = no_links(output)
-    boundary = no_links(workspace if workspace is not None else ROOT/'tmp')
+    if workspace is None:
+        raise ValueError('Supply an explicit external workspace for review output')
+    output = external_path(output)
+    boundary = external_directory(workspace)
     if output == boundary or not output.is_relative_to(boundary):
         raise ValueError('Review outputs must be a fresh directory within the selected workspace')
     if output.exists():

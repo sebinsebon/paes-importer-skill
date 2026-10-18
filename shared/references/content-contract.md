@@ -4,7 +4,7 @@ Esquema normativo distribuido: ../schemas/final.schema.json. Formato paessed-ben
 
 Raíz: format/schema_version/pipeline/run/exam/sources/questions/assets/evidence. No añadir campos a preguntas. run admite metadatos del modo. sources contiene ID, nombre, SHA-256, page_count y role exam/solution; nunca PDF ni ruta local.
 
-Pregunta: id/source_id/number/regions/stem/options/answer/explanation/fidelity/issues. IDs únicos; números strings. exam.expected_questions fija cobertura exacta, incluso con preguntas pendientes.
+Pregunta: id/source_id/number/regions/stem/options/answer/explanation/fidelity/issues/curriculum. IDs únicos; números strings. exam.expected_questions fija cobertura exacta, incluso con preguntas pendientes.
 
 Bloques: text {text}, math {latex,display}, image {asset_id,alt}, table {rows}, unresolved {reason}. Alternativas label A..Z y blocks; no asumir cuatro o cinco alternativas.
 

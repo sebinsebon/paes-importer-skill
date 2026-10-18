@@ -6,6 +6,7 @@ import math
 import re
 import shutil
 import sys
+sys.dont_write_bytecode = True
 import time
 from functools import wraps
 from datetime import datetime
@@ -217,7 +218,9 @@ def add_evidence(folder, batch_id, requests):
         if not q or not req.get('reason') or not re.fullmatch(r'[A-Za-z0-9_-]{1,100}', req['id']) or req['id'] in known_ids:
             raise ValueError('Evidence request needs batch question, reason and new safe ID')
         known_ids.add(req['id'])
-        sid = q['source_id']
+        sid = req.get('source_id', q['source_id'])
+        if sid not in sources:
+            raise ValueError('Unknown evidence source')
         page_no = req['page']
         if type(page_no) is not int or not 1 <= page_no <= sources[sid]['page_count']:
             raise ValueError('Invalid evidence page')
@@ -244,7 +247,8 @@ def add_evidence(folder, batch_id, requests):
     new(batch / 'history' / f'input-before-{revision}.json', read(batch / 'input.json'))
     new(batch / 'history' / f'evidence-{revision}.json', additions)
     write(batch / 'input.json', packet)
-    write(batch / 'report-template.json', report_template(packet))
+    reviewer = read(batch/'reading.json')['reviewer'] if (batch/'reading.json').exists() else None
+    write(batch / 'report-template.json', report_template(packet, reviewer))
     run['inputs'][(batch / 'input.json').relative_to(folder).as_posix()] = digest(batch / 'input.json')
     write(folder / 'run.json', run)
 
@@ -304,31 +308,79 @@ def _commit_reading(folder, batch_id, response_file):
     reading_sha = __import__('hashlib').sha256(reading_bytes).hexdigest()
     selected = [q for q in baseline['questions'] if q['id'] in identities]
     asset_ids = {b['asset_id'] for q in selected for b in question_blocks(q) if b['type'] == 'image'}
+    parent = Path(run['parent']['path'])
+    key_file = parent/'answer-key-map.json'
+    keys = {e['question_id']:e for e in read(key_file)['entries']} if key_file.exists() else {}
+    provenance_file = parent/'explanation-provenance.json'
+    provenance = read(provenance_file) if provenance_file.exists() else {}
+    requirements = {}
+    needed = set()
+    for question in selected:
+        dimensions = {}
+        for dimension in ('answer','explanation'):
+            origin = keys.get(question['id']) if dimension == 'answer' else provenance.get(question['id'])
+            if origin and origin.get('source_id'):
+                source = origin['source_id']
+                pages = origin.get('pages', [origin['page']])
+                key = keys.get(question['id'])
+                if dimension == 'explanation' and key and key['source_id'] == source:
+                    pages = key.get('pages', pages)
+                regions = [{'source_id':source,'page':p,'bbox':None} for p in pages]
+            else:
+                regions = [{'source_id':question['source_id'],**r} for r in question['regions']]
+            dimensions[dimension] = regions
+            needed.update((r['source_id'],r['page']) for r in regions)
+        requirements[question['id']] = dimensions
+    evidence = list(packet['evidence'])
+    paths = read(parent/'sources.local.json')
+    existing_pages = {(e['source_id'],e['page']) for e in evidence}
+    for sid,page_no in sorted(needed-existing_pages):
+        name = f'evidence/{sid}-p{page_no:04d}.png'
+        target = batch/name
+        with pdfium.PdfDocument(str(paths[sid])) as pdf:
+            page = pdf[page_no-1]
+            try:
+                if target.exists():
+                    width,height = page.get_size(); box = [0,0,width,height]
+                else:
+                    box = render_crop(page,target,scale=1.5)
+            finally: page.close()
+        evidence.append({'path':name,'source_id':sid,'page':page_no,'bbox':box,'sha256':digest(target)})
+    revealed_assets = [a for a in baseline['assets'] if a['id'] in asset_ids]
+    for asset in revealed_assets:
+        destination = batch/asset['path']
+        if destination.exists():
+            if digest(destination) != asset['sha256']: raise ValueError('Changed comparison asset')
+        else: copy_resource(artifact_path(parent,asset['path']),destination)
     revealed = {'format':'direct-verification-batch-1.0','batch_id':batch_id,
                 'baseline_sha256':run['parent']['final_sha256'],'stage':'comparison','questions':selected,
-                'assets':[a for a in baseline['assets'] if a['id'] in asset_ids],
-                'evidence':packet['evidence'],'checks':list(CHECKS),'reading_sha256':reading_sha}
-    template = report_template(revealed)
-    template['reading_sha256'] = reading_sha
-    template['reviewer'] = copy.deepcopy(reviewer)
+                'assets':revealed_assets, 'source_requirements':requirements,
+                'evidence':evidence,'checks':list(CHECKS),'reading_sha256':reading_sha}
+    template = report_template(revealed, reviewer)
     updates = {prefix+'reading.json':reading_bytes,prefix+'source-input.json':json_bytes(packet),
                prefix+'input.json':json_bytes(revealed),prefix+'report-template.json':json_bytes(template)}
     for relative in ('reading.json','source-input.json','input.json'):
         run['inputs'][prefix+relative] = __import__('hashlib').sha256(updates[prefix+relative]).hexdigest()
+    for resource in evidence+revealed_assets:
+        run['inputs'][prefix+resource['path']] = resource['sha256']
     updates['run.json'] = json_bytes(run)
     commit(folder,updates,original_run,commit_point='run.json',journal_name='reading-transition.json')
     return {'batch_id':batch_id,'stage':'comparison','reading_sha256':reading_sha}
 
 
-def report_template(packet):
-    return {'format': 'direct-verification-report-1.0', 'batch_id': packet['batch_id'],
+def report_template(packet, reviewer=None):
+    result = {'format': 'direct-verification-report-1.0', 'batch_id': packet['batch_id'],
             'input_sha256': json_digest(packet),
             'reviewer': {'id': '', 'session_id': '', 'model': '', 'effort': '', 'fresh_context': False},
             'usage': {k: None for k in USAGE}, 'usage_source': 'unavailable',
             'questions': [{'id': q['id'], 'checks': {k: {'status': 'unresolved', 'reason': '', 'evidence': []} for k in CHECKS},
                            'independent_solution': {'label': None, 'reasoning': '', 'evidence': []},
                            'changes': [], 'post_checks': {k: 'unresolved' for k in CHECKS}}
-                          for q in packet['questions']]}
+                           for q in packet['questions']]}
+    if packet.get('reading_sha256'):
+        result['reading_sha256'] = packet['reading_sha256']
+    if reviewer is not None: result['reviewer'] = copy.deepcopy(reviewer)
+    return result
 
 @reading_operation
 def load_reports(folder):
@@ -361,16 +413,45 @@ def load_reports(folder):
         if len(rows) != len(original) or {q['id'] for q in rows} != set(original):
             raise ValueError('Batch coverage mismatch')
         known = {e['path']: e for e in packet['evidence'] + packet['assets']}
-        def evidence(refs, question=None):
+        def evidence(refs, question=None, dimension=None, require_coverage=False):
             if not refs:
                 raise ValueError('Judgement/correction needs source evidence')
             for ref in refs:
                 record = known.get(ref.get('path'))
                 if not record or ref.get('sha256') != record['sha256'] or not ref.get('observation'):
                     raise ValueError('Evidence must bind an observed batch resource hash')
-                if question is not None and (record['source_id'] != question['source_id'] or not any(
+                if question is not None and dimension in ('stem','options','assets_math') and (record['source_id'] != question['source_id'] or not any(
                         record['page'] == r['page'] and overlaps(record['bbox'], r['bbox']) for r in question['regions'])):
                     raise ValueError('Comparison evidence must cover question source region')
+            if question is not None and dimension is not None:
+                required = []
+                source_requirements = packet.get('source_requirements',{}).get(question['id'],{})
+                if dimension in ('answer','explanation'):
+                    required = source_requirements.get(dimension, [])
+                else:
+                    mapping = next(q for q in read(Path(run['parent']['path'])/'selection.json')['expected_questions'] if q['id']==question['id'])
+                    fields = mapping.get('source_fields', {})
+                    selected_fields = ['stem'] if dimension == 'stem' else [f for f in fields if f.startswith('options/')]
+                    if dimension in ('assets_math','consistency'): selected_fields = list(fields)
+                    regions = [r for field in selected_fields for r in fields[field]] if fields else question['regions']
+                    required = [{'source_id':question['source_id'],**r} for r in regions]
+                    if dimension == 'consistency':
+                        required += [r for values in source_requirements.values() for r in values]
+                    elif dimension == 'assets_math':
+                        required += source_requirements.get('explanation', [])
+                if not required:
+                    required = [{'source_id':question['source_id'],**r} for r in question['regions']]
+                for ref in refs:
+                    resource = known[ref['path']]
+                    if not any(resource['source_id']==r['source_id'] and resource['page']==r['page'] and
+                               (r['bbox'] is None or overlaps(resource['bbox'],r['bbox'])) for r in required):
+                        raise ValueError('Comparison evidence uses the wrong field/source page')
+                if require_coverage:
+                    from evidence import cover_regions
+                    for r in required:
+                        available = [known[ref['path']] for ref in refs if known[ref['path']]['source_id']==r['source_id'] and known[ref['path']]['page']==r['page']]
+                        if not available or (r['bbox'] is not None and not cover_regions([r],available)):
+                            raise ValueError('Comparison evidence omits required source coverage')
         for row in rows:
             if set(row['checks']) != set(CHECKS) or set(row['post_checks']) != set(CHECKS):
                 raise ValueError('Six checks required')
@@ -378,14 +459,14 @@ def load_reports(folder):
                 if check['status'] not in ('pass', 'error', 'unresolved') or not check['reason']:
                     raise ValueError('Invalid check judgement')
                 if check['status'] != 'unresolved':
-                    evidence(check['evidence'], original[row['id']] if dimension in ('stem', 'options', 'assets_math') else None)
+                    evidence(check['evidence'], original[row['id']], dimension, check['status']=='pass')
             if any(s not in ('pass', 'unresolved') for s in row['post_checks'].values()):
                 raise ValueError('Invalid post check')
             solution = row['independent_solution']
             if solution['label'] is not None:
                 if not solution.get('reasoning'):
                     raise ValueError('Independent reasoning required')
-                evidence(solution['evidence'])
+                evidence(solution['evidence'], original[row['id']], 'stem', True)
             fields = set()
             for change in row['changes']:
                 field = change['field']
@@ -416,10 +497,12 @@ def load_reports(folder):
         parent = Path(run['parent']['path'])
         validate_mapping(proposal, read(parent/'selection.json'))
         validate_geometry(proposal, read(parent/'catalog.json'))
-        from content_inventory import validate_inventory
+        from content_inventory import validate_inventory, with_solution_inventory
         mapped = {q['id']: q for q in read(parent/'selection.json')['expected_questions']}
+        key_file = parent/'answer-key-map.json'
+        keys = {e['question_id']:e for e in read(key_file)['entries']} if key_file.exists() else {}
         for q in proposal['questions']:
-            validate_inventory(q, mapped[q['id']], proposal)
+            validate_inventory(q, with_solution_inventory(mapped[q['id']], keys.get(q['id'])), proposal)
         reports.append((batch_id, report))
     audited = [q['id'] for _, report in reports for q in report['questions']]
     if len(audited) != len(set(audited)) or set(audited) != set(run['target_question_ids']):
@@ -559,10 +642,10 @@ def consolidate(folder, decision_file):
                 if final_quality['publication_eligibility'] != 'blocked': final_quality['publication_eligibility'] = 'partial'
     require_publishable(final_quality)
     parent = Path(run['parent']['path'])
-    from content_inventory import validate_inventory
+    from content_inventory import validate_inventory, with_solution_inventory
     mapped = {q['id']: q for q in read(parent/'selection.json')['expected_questions']}
     for q in final['questions']:
-        validate_inventory(q, mapped[q['id']], final)
+        validate_inventory(q, with_solution_inventory(mapped[q['id']], keys.get(q['id'])), final)
     if (parent/'route.json').exists() and read(parent/'route.json')['processing_mode'] == 'answer-key' and final_quality['publication_eligibility'] != 'complete':
         raise ValueError('Complete answer-key import remains incomplete after independent review')
     final['run']['quality'] = final_quality

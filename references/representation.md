@@ -28,7 +28,7 @@ En JSON, cada barra de LaTeX se escapa una vez. El valor decodificado lleva una 
 ]}
 ~~~
 
-Conserva encabezados, filas, columnas y celdas. Una estructura que el contrato no expresa requiere imagen fiel y una incidencia; no se aplana a una oración.
+Conserva encabezados, filas, columnas y celdas. Registra shape (o shapes para varias tablas) en el inventario antes de transcribir. Si el contrato no expresa una estructura, por ejemplo celdas combinadas esenciales, registra `representation:"image-with-issue"` y `limitation:{reason,regions}` en esa entrada. Conserva la tabla completa mediante recurso image en el campo e incidencia `TABLE_STRUCTURE_IMAGE_FALLBACK` en la pregunta. Las regiones de limitation cubren las mismas regiones observadas de la tabla. No uses una tabla mínima ficticia para satisfacerla ni apliques esta excepción a matemática editable.
 
 ## Opciones gráficas
 
@@ -40,6 +40,8 @@ Conserva encabezados, filas, columnas y celdas. Una estructura que el contrato n
 ~~~
 
 Cada recorte incluye su gráfico entero y sus rótulos, sin parte del siguiente. No pongas el mosaico en stem seguido de opciones genéricas.
+
+El recurso debe contener lo observado y permanecer dentro de source_fields de esa alternativa. Un recorte de página completa que mezcla A y B no representa ambas alternativas. Solo reutiliza un recurso compartido cuando la fuente realmente comparte la misma región observada; documenta el mapa con fidelidad.
 
 ## Desarrollo con solucionario
 

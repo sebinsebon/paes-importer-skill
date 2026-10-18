@@ -29,6 +29,6 @@ Lee solo el flujo elegido y sus referencias necesarias. Un chat web con ejecuci�
 
 Conserva enunciados, orden, alternativas, tablas, figuras y matemática del ensayo. Usa el solucionario correspondiente para respuestas y desarrollos: explicaciones como texto y matemática editables; imágenes para diagramas necesarios. La pauta no reduce el cotejo del ensayo.
 
-Compara visualmente **cada pregunta, alternativa y recorte** con su fuente antes de entregar. Con solucionario completo, repara los pendientes dentro de la ejecución; si falta evidencia, conserva avances e informa que está incompleta. No declares `verified` mediante autorrevisión.
+Compara visualmente **cada pregunta, alternativa y recorte** con su fuente antes de entregar. Primero inspecciona el HTML con tus herramientas; si no puedes, usa capturas observables. Si tampoco puedes obtenerlas e inspeccionarlas, informa la limitación y conserva revisión pendiente. Las dependencias de captura son opcionales. Con solucionario completo, repara los pendientes dentro de la ejecución; si falta evidencia, conserva avances e informa que está incompleta. No declares `verified` mediante autorrevisión.
 
 Emite contenido **0.2.0**, con currículo M1 y procedencia, dentro de `.paessed` y ZIP idénticos. En **Chat Web adjunta ambos directamente**, sin preguntar carpeta. En **CLI** usa el destino indicado o pregunta Documentos/Descargas/ruta personalizada. Esquemas y validadores se resuelven dentro del bundle.

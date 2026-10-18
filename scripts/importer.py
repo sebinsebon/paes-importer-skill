@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import sys
+sys.dont_write_bytecode = True
 import time
 import unicodedata
 import uuid
@@ -21,16 +22,16 @@ from package_io import inspect_package, pack, validate
 from pdf_assets import apply_crops, prepare_catalog, source_record
 from direct_gate import validate_direct_input
 from output_policy import require_official_final
-from evidence import field_paths, validate_citations, validate_geometry, validate_mapping
+from evidence import field_paths, validate_citations, validate_geometry, validate_mapping, validate_source_fields
 from quality import summarize, require_publishable
-from content_inventory import validate_inventory_record, validate_inventory
+from content_inventory import validate_inventory_record, validate_inventory, with_solution_inventory as observed_inventory
 import visual_review
 import pipeline as engine
 from policy import select_mode
 
 CHECKS = ('stem', 'options', 'assets_math', 'answer', 'explanation', 'consistency')
 CAPABILITIES = ('pdf_visual', 'crop', 'execute', 'zip', 'validate')
-PROTOCOL = '0.3.0'
+PROTOCOL = '0.4.0'
 
 
 def candidate_operation(function):
@@ -83,6 +84,11 @@ def output_root(destination, custom):
 def require_capabilities(record):
     if any(record.get(k) is not True for k in CAPABILITIES) or not record.get('observation'):
         raise ValueError('Need observed PDF visuals, crops, execution, validation and ZIP capabilities')
+    visual = record.get('result_visual', {})
+    if not isinstance(visual,dict) or visual.get('mode') not in ('html','images','unavailable') or not visual.get('observation'):
+        raise ValueError('Observe result_visual mode html/images/unavailable and its limitation/tool')
+    if visual['mode'] != 'unavailable' and not visual.get('tool'):
+        raise ValueError('Identify the actual rendered-result inspection tool')
 
 
 def base_folder(value):
@@ -118,11 +124,12 @@ def prepare(args):
     folder.mkdir(parents=True)
     temporary = inside(destination / '.work/tmp')
     temporary.mkdir()
-    os.environ.update(TEMP=str(temporary), TMP=str(temporary), UV_CACHE_DIR=str(temporary / 'uv-cache'))
+    from runtime_environment import process_environment
+    os.environ.update(process_environment(destination/'.work', create=True))
     config = {'host': args.host, 'model': args.model, 'effort': args.effort, 'batch_size': 5,
               'capabilities': capabilities, 'max_retries': 3,
               'suggested_save_location': getattr(args, 'suggested_save_location', None),
-              'visual_review_protocol': visual_review.PROTOCOL}
+              'visual_review_protocol': visual_review.PROTOCOL, 'source_fields_protocol': 'source-fields-1'}
     run = {'id': rid, 'pipeline': 'pdf-direct', 'variant': 'direct', 'protocol_version': PROTOCOL,
            'purpose': 'portable-import', 'eligible': False, 'status': 'preparing',
            'cli': args.client or args.host, 'host': args.host, 'model': args.model,
@@ -187,6 +194,13 @@ def map_questions(folder, selection_file):
             raise ValueError('Observed option_labels must be distinct A..Z labels')
         if visual_review.required(folder) and not q.get('mapping_pending'):
             validate_inventory_record(q, read(folder/'catalog.json'))
+            if run['config'].get('source_fields_protocol') == 'source-fields-1':
+                validate_source_fields(q, read(folder/'catalog.json'))
+                for item in q['content_inventory']:
+                    if item['field'] == 'explanation':
+                        raise ValueError('Observe explanation inventory in its frozen answer-key entry')
+                    if item['type']=='table' and item.get('representation','editable')=='editable' and not (item.get('shape') or item.get('shapes')):
+                        raise ValueError('Observe editable table shape before transcription')
         for region in q.get('regions', []):
             page = next((p for p in read(folder/'catalog.json')['pages'] if p['source_id'] == 'exam' and p['page'] == region.get('page')), None)
             if not page:
@@ -245,6 +259,16 @@ def validate_key(record, candidate):
         if entry['question_id'] not in allowed or not re.fullmatch('[A-Z]', entry.get('label', '')):
             raise ValueError('Invalid answer-key question or label')
         cite(entry)
+        if 'has_explanation' in entry and type(entry['has_explanation']) is not bool:
+            raise ValueError('has_explanation must be boolean')
+        if entry.get('has_explanation'):
+            inventory = entry.get('content_inventory')
+            if not isinstance(inventory,list):
+                raise ValueError('Observe solution content_inventory explicitly before transcribing development')
+            allowed_pages = entry.get('pages',[entry['page']])
+            if any(not isinstance(item,dict) or item.get('field')!='explanation' or item.get('source_id',entry['source_id']) != entry['source_id'] or
+                   any(r.get('page') not in allowed_pages for r in item.get('regions',[])) for item in inventory):
+                raise ValueError('Explanation inventory must follow its own frozen solution source/pages')
     return {e['question_id']: e for e in entries}
 
 
@@ -256,8 +280,11 @@ def route(folder, key_file, subagents, experimental, review_ids=None):
         raise ValueError('Processing route is already frozen')
     key = read(key_file) if key_file else None
     entries = validate_key(key, candidate) if key else {}
+    mapping = {q['id']:q for q in read(folder/'selection.json')['expected_questions']}
+    for qid,entry in entries.items():
+        validate_inventory_record(observed_inventory(mapping[qid],entry), read(folder/'catalog.json'))
     decision = select_mode(run['host'], [q['id'] for q in candidate['questions']], entries,
-                           subagents, experimental)
+                           subagents, experimental, review_ids=review_ids)
     if decision['status'] == 'needs_consent':
         return decision
     record = {**decision, 'experimental_consent': experimental, 'answer_key': key}
@@ -318,7 +345,9 @@ def ingest(folder, response_file):
     for raw_question in questions:
         q = copy.deepcopy(raw_question)
         try:
-            validate_inventory(q, mapping[q['id']], candidate)
+            inventory = observed_inventory(mapping[q['id']], key.get(q['id']))
+            validate_inventory_record(inventory, read(folder/'catalog.json'))
+            validate_inventory(q, inventory, candidate)
             if q['id'] in key:
                 label = key[q['id']]['label']
                 if label not in {o['label'] for o in q['options']}:
@@ -339,6 +368,9 @@ def ingest(folder, response_file):
                         raise ValueError('No source justification recorded for this question')
                     if provenance.get('source_id') != key[q['id']]['source_id'] or provenance.get('page') != key[q['id']]['page']:
                         raise ValueError('Solution explanation source/page mismatch')
+                    pages = provenance.setdefault('pages',key[q['id']].get('pages',[key[q['id']]['page']]))
+                    if not isinstance(pages,list) or not pages or set(pages) != set(key[q['id']].get('pages',[key[q['id']]['page']])):
+                        raise ValueError('Explanation pages must preserve frozen solution coverage')
             prepared.append(q)
         except (ValueError,KeyError,TypeError) as exc:
             rejected.append({'question_id':q['id'],'reason':str(exc)})
@@ -389,7 +421,27 @@ def final_usage(folder):
     before, after = total['input_tokens'],total['output_tokens']
     return {**total,'total_tokens':before+after if before is not None and after is not None else None,
             'cost_usd':total['cost'] if total['currency']=='USD' else None,
-            'source':'provider_receipts' if records else 'unavailable'}
+            'source':'provider_receipts' if records else 'unavailable', 'scope':'production_only'}
+
+
+def publication_usage(folder, independent):
+    production = final_usage(folder)
+    if not independent:
+        return {'production':production, 'verification':None, 'combined':production}
+    path = folder.parent/'verification/metrics.json'
+    if not path.is_file():
+        raise ValueError('Independent publication requires its measured/unknown verification summary')
+    metrics = read(path)
+    verification = metrics['verification_usage']
+    fields = ('input_tokens','output_tokens','total_tokens','cost_usd','duration_seconds')
+    combined = {key:production.get(key)+verification[key]
+                if production.get(key) is not None and verification.get(key) is not None else None
+                for key in fields}
+    return {'production':production, 'verification':verification,
+            'verification_metrics_sha256':digest(path),
+            'combined':{**combined, 'scope':'production_and_verification',
+                        'accounting':'disjoint_declared_scopes; duration sums calls, not wall time',
+                        'attestation':'host measurements; missing values remain unknown'}}
 
 
 @candidate_operation
@@ -425,6 +477,7 @@ def check_template(folder):
             'questions': [{'id': q['id'], 'content_sha256': engine.content_hash(q, candidate, folder),
                            'solution_sha256': engine.solution_hash(q, candidate, folder),
                            **({'render_review': previews.get(q['id'])} if visual_review.required(folder) else {}),
+                           'visual_observation': {'mode':'unavailable','tool':'','observation':''},
                            'checks': {k: {'status': 'unresolved', 'reason': '', 'field_paths': field_paths(q)[k], 'evidence': []} for k in CHECKS}}
                           for q in candidate['questions']]}
 
@@ -453,6 +506,9 @@ def check_record(folder, record, candidate):
             raise ValueError('Stale self-check question/solution')
         if visual_review.required(folder):
             visual_review.validate_review(folder, row.get('render_review'), q, candidate, review_cache)
+            observed = visual_review.validate_observation(folder, row.get('visual_observation'), row.get('render_review'), q, candidate, review_cache)
+            if not observed and any(row.get('checks',{}).get(k,{}).get('status')=='pass' for k in ('stem','options','assets_math','consistency')):
+                raise ValueError('Rendered result unavailable: keep visual checks unresolved')
         if set(row.get('checks', {})) != set(CHECKS):
             raise ValueError('Self-check needs all six dimensions')
         for dimension, check in row['checks'].items():
@@ -508,7 +564,7 @@ def validate_for_pack(folder):
     mapped = {q['id']:q for q in read(folder/'selection.json')['expected_questions']}
     checked_reports = {}
     for q in candidate['questions']:
-        validate_inventory(q, mapped[q['id']], candidate)
+        validate_inventory(q, observed_inventory(mapped[q['id']], key.get(q['id'])), candidate)
         if candidate['schema_version'] == '0.2.0':
             from curriculum import curriculum_hash, prepare_ledger, validate_question_curriculum
             classified = validate_question_curriculum(q)
@@ -586,8 +642,8 @@ def finish_publication(folder, output, result, decision):
     metadata = {**run, 'id': final['run']['id'], 'status': 'packaged', 'finished_at': now(),
                 'processing_mode': decision['processing_mode'], 'review_mode': decision['review_mode'],
                 'final_sha256': digest(output / 'final.json'), 'package_sha256': digest(target),
-                'usage': {'input_tokens': None, 'output_tokens': None, 'total_tokens': None, 'cost_usd': None,
-                          'source': 'unavailable'},
+                 'usage': final_usage(folder),
+                'usage_scopes': publication_usage(folder, bool(decision['independent_question_ids'])),
                 'summary': {'questions': result['questions'],
                             'answers_from_key': sum(q['answer']['origin'] == 'answer-key' for q in final['questions']),
                             'answers_from_model': sum(q['answer']['origin'] == 'model' for q in final['questions']),
@@ -678,7 +734,7 @@ def main():
     p.add_argument('action', choices=['prepare', 'check', 'decisions', 'consolidate', 'add-evidence', 'commit-reading'])
     p.add_argument('--run', required=True); p.add_argument('--session-id', default='unknown')
     p.add_argument('--decisions'); p.add_argument('--batch'); p.add_argument('--requests'); p.add_argument('--response')
-    for name in ('map', 'route', 'ingest', 'record-input', 'record-usage', 'batch-plan', 'review', 'check-template', 'record-check', 'crops',
+    for name in ('map', 'route', 'ingest', 'record-input', 'record-usage', 'batch-plan', 'review', 'capture-review', 'check-template', 'record-check', 'crops',
                  'validate', 'pack', 'baseline', 'resume', 'fail'):
         p = sub.add_parser(name); p.add_argument('--run', required=True)
         if name == 'map': p.add_argument('--selection', required=True)
@@ -686,9 +742,11 @@ def main():
         if name == 'route':
             p.add_argument('--answer-key'); p.add_argument('--subagents', action='store_true')
             p.add_argument('--experimental', choices=['yes', 'no'])
-            p.add_argument('--review-question', action='append', default=[])
-            p.add_argument('--review-all', action='store_true')
+            review = p.add_mutually_exclusive_group()
+            review.add_argument('--review-question', action='append', default=[])
+            review.add_argument('--review-all', action='store_true')
         if name == 'crops': p.add_argument('--requests', required=True)
+        if name == 'capture-review': p.add_argument('--executable-path')
         if name == 'batch-plan':
             p.add_argument('--batch-size',type=int,default=5); p.add_argument('--max-characters',type=int,default=24000)
         if name == 'fail': p.add_argument('--reason', required=True)
@@ -712,8 +770,16 @@ def main():
             elif args.command == 'batch-plan':
                 frozen_route(folder)
                 from batch_plan import plan_batches
-                result = plan_batches(read(folder/'candidate.json'),args.batch_size,args.max_characters)
+                result = plan_batches(read(folder/'candidate.json'),args.batch_size,args.max_characters,
+                                      selection=read(folder/'selection.json'), route=read(folder/'route.json'))
             elif args.command == 'check-template': result = check_template(folder)
+            elif args.command == 'capture-review':
+                ensure_editable(folder)
+                frozen_route(folder)
+                references = read(folder/'render-reviews.json')
+                if not references: raise ValueError('Generate review before capture-review')
+                from capture_review import capture_review
+                result = capture_review(folder, next(iter(references.values())), executable_path=args.executable_path)
             elif args.command == 'review':
                 with __import__('checkpoints').state_lock(folder):
                     ensure_editable(folder)
