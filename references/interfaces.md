@@ -97,6 +97,10 @@ source_ref de una respuesta de pauta apunta a .work/base/answer-key-map.json#ID.
 
 El cotejo del productor mantiene estados provisionales/pending. reviewed/verified exige informe independiente, evidencia y decisiones vinculadas. No son equivalentes a una pauta oficial o acierto garantizado. Si hay discrepancia con pauta, conserva su origen y la incidencia; no la sustituuyas silenciosamente.
 
+Gold se informa en `run.quality.gold_eligible`: requiere fidelidad visual completa y evidencia vigente, sin exigir reviewed/verified ni resolución matemática independiente. `origin:answer-key` identifica procedencia, no revisión. Una respuesta con fuente puede seguir siendo provisional y ser elegible para Gold cuando todos los cotejos estén completos. Una revisión independiente de una solución existente verifica su transcripción y asociación; no garantiza que el autor resolviera correctamente.
+
+Si has_explanation es true, ingest exige origin solution para una explicación no vacía. Copia el desarrollo completo, incluyendo matemática, tablas e imágenes; no lo reemplaces por una explicación del modelo. Las conjunciones/preposiciones españolas a/y/e/o/u no son automáticamente variables por compartir letra. Las apariciones ambiguas dentro de prosa requieren cotejo visual; las expresiones y variables matemáticas van en math inline.
+
 
 ## Contrato curricular 0.2.0
 

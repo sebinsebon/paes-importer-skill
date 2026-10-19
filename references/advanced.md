@@ -12,6 +12,12 @@ El contenido se escribe mediante un serializador UTF-8 y luego se transporta com
 
 `ingest` devuelve accepted, rejected (con motivo) y unchanged por pregunta. Conservar las aceptadas; regenerar únicamente las rechazadas. Un reenvío idéntico conserva estados y razones vigentes. Máximo tres intentos por pregunta dentro del presupuesto disponible; después ampliar evidencia, dejar pending/unresolved explícito o registrar fail. No repetir lotes aprobados para aparentar reparación.
 
+## Corregir observaciones del mapa
+
+Si una observación congelada exige una variable, tabla o figura inexistente, vuelve a mirar su fuente y usa `repair-map --run RUN --response correccion.json`. La entrada contiene `reason` no vacío y `questions` con los registros completos corregidos de selection.json, o `solution_entries` con las entradas completas corregidas de answer-key-map.json.
+
+En preguntas solo pueden cambiar content_inventory, source_fields, regions, field_regions y mapping_pending; en soluciones, content_inventory y observation. No permite cambiar identidad, numeración, etiquetas, clave, páginas del solucionario ni cobertura. Conserva versiones y solicitud, actualiza hashes mediante el checkpoint existente y retira solo cotejos/vistas de las preguntas afectadas. No modifica su contenido ni aprueba la corrección: revisa y renueva sus cotejos. Si cambia la fuente o la identidad, inicia otra ejecución.
+
 ## Lectura ciega 0.2.0
 
 La verificación comienza con input.json de stage source-reading y reading-template.json. Completar únicamente id/source_id/number/regions/stem/options/evidence y reviewer identificado. No añadir answer, explanation ni decisiones del productor. `verify commit-reading --run VERIFICATION --batch batch-01 --response lectura.json` congela lectura y hashes antes de generar el paquete de comparison y report-template.json. El informe posterior debe conservar reading_sha256 y el mismo reviewer; la independencia continúa siendo una declaración, no aislamiento autenticado.

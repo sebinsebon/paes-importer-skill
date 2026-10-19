@@ -355,6 +355,9 @@ def _commit_reading(folder, batch_id, response_file):
     revealed = {'format':'direct-verification-batch-1.0','batch_id':batch_id,
                 'baseline_sha256':run['parent']['final_sha256'],'stage':'comparison','questions':selected,
                 'assets':revealed_assets, 'source_requirements':requirements,
+                'source_backed_question_ids':[q['id'] for q in selected
+                    if keys.get(q['id'],{}).get('has_explanation') and
+                    provenance.get(q['id'],{}).get('origin') == 'solution'],
                 'evidence':evidence,'checks':list(CHECKS),'reading_sha256':reading_sha}
     template = report_template(revealed, reviewer)
     updates = {prefix+'reading.json':reading_bytes,prefix+'source-input.json':json_bytes(packet),
@@ -374,7 +377,8 @@ def report_template(packet, reviewer=None):
             'reviewer': {'id': '', 'session_id': '', 'model': '', 'effort': '', 'fresh_context': False},
             'usage': {k: None for k in USAGE}, 'usage_source': 'unavailable',
             'questions': [{'id': q['id'], 'checks': {k: {'status': 'unresolved', 'reason': '', 'evidence': []} for k in CHECKS},
-                           'independent_solution': {'label': None, 'reasoning': '', 'evidence': []},
+                           **({} if q['id'] in packet.get('source_backed_question_ids',[]) else
+                              {'independent_solution': {'label': None, 'reasoning': '', 'evidence': []}}),
                            'changes': [], 'post_checks': {k: 'unresolved' for k in CHECKS}}
                            for q in packet['questions']]}
     if packet.get('reading_sha256'):
@@ -420,7 +424,7 @@ def load_reports(folder):
                 record = known.get(ref.get('path'))
                 if not record or ref.get('sha256') != record['sha256'] or not ref.get('observation'):
                     raise ValueError('Evidence must bind an observed batch resource hash')
-                if question is not None and dimension in ('stem','options','assets_math') and (record['source_id'] != question['source_id'] or not any(
+                if question is not None and dimension in ('stem','options') and (record['source_id'] != question['source_id'] or not any(
                         record['page'] == r['page'] and overlaps(record['bbox'], r['bbox']) for r in question['regions'])):
                     raise ValueError('Comparison evidence must cover question source region')
             if question is not None and dimension is not None:
@@ -462,7 +466,7 @@ def load_reports(folder):
                     evidence(check['evidence'], original[row['id']], dimension, check['status']=='pass')
             if any(s not in ('pass', 'unresolved') for s in row['post_checks'].values()):
                 raise ValueError('Invalid post check')
-            solution = row['independent_solution']
+            solution = row.get('independent_solution', {'label':None})
             if solution['label'] is not None:
                 if not solution.get('reasoning'):
                     raise ValueError('Independent reasoning required')
@@ -564,6 +568,7 @@ def consolidate(folder, decision_file):
     lookup = {q['id']: q for q in final['questions']}
     verified = errors = unresolved = 0
     for bid, report in reports:
+        packet = read(folder/'batches'/bid/'input.json')
         for row in report['questions']:
             q = lookup[row['id']]
             errors += sum(c['status'] == 'error' for c in row['checks'].values())
@@ -572,8 +577,10 @@ def consolidate(folder, decision_file):
                     q[c['field']] = copy.deepcopy(c['after'])
             ref = f'.work/verification/batches/{bid}/report.json#{q["id"]}'
             all_accepted = all((bid, q['id'], c['field']) in accepted for c in row['changes'])
-            solution = row['independent_solution']
-            clear = all_accepted and all(s == 'pass' for s in row['post_checks'].values()) and solution['label'] is not None and solution['label'] == q['answer']['label']
+            solution = row.get('independent_solution', {'label':None})
+            source_backed = q['id'] in packet.get('source_backed_question_ids',[])
+            clear = all_accepted and all(s == 'pass' for s in row['post_checks'].values()) and (
+                source_backed or solution['label'] is not None and solution['label'] == q['answer']['label'])
             if clear:
                 q['fidelity'] = {'status': 'reviewed', 'review_ref': ref}
                 q['answer'].update(status='verified', source_ref=ref)
@@ -625,6 +632,14 @@ def consolidate(folder, decision_file):
             ledger = prepare_ledger(final,{'questions':updates,'curriculum_provenance':provenance},engine.content_hash,folder,ledger)
         write(folder/'curriculum-ledger.json',ledger)
     final_quality = summarize(final)
+    # A changed result needs a renewed visual cotejo; a source-only comparison
+    # must not silently inherit Gold from a different rendered baseline.
+    import pipeline as engine
+    old_questions = {q['id']:q for q in baseline['questions']}
+    final_quality['gold_eligible'] = bool(baseline['run'].get('quality',{}).get('gold_eligible')) and all(
+        engine.solution_hash(q,final,folder) == engine.solution_hash(old_questions[q['id']],baseline,folder)
+        for q in final['questions'])
+    final_quality['gold_basis'] = 'Visual fidelity to exam and available solution; not independent mathematical correctness'
     for bid, report in reports:
         for row in report['questions']:
             for dimension, status in row['post_checks'].items():
@@ -648,6 +663,7 @@ def consolidate(folder, decision_file):
         validate_inventory(q, with_solution_inventory(mapped[q['id']], keys.get(q['id'])), final)
     if (parent/'route.json').exists() and read(parent/'route.json')['processing_mode'] == 'answer-key' and final_quality['publication_eligibility'] != 'complete':
         raise ValueError('Complete answer-key import remains incomplete after independent review')
+    final_quality['gold_eligible'] = final_quality['gold_eligible'] and final_quality['publication_eligibility'] == 'complete'
     final['run']['quality'] = final_quality
     # Compatible v1 container; experimental metadata is in extensible run, never schema changes.
     final['run'].update(id=run['id'], created_at=now(), verification_variant='direct-verified',

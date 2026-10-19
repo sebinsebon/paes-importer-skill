@@ -31,8 +31,8 @@ Omite --answer-key sin pauta. Completa direct-input.template.json con páginas r
 Usa las [interfaces](interfaces.md) y [ejemplos de representación](representation.md). Ejecuta `batch-plan --run RUN` antes de la primera transcripción: usa el mapa e inventario congelados para entregar las páginas pertinentes de ensayo y solucionario. Si indica mapeo insuficiente, completa la observación antes de transcribir; no sustituyas cada lote por el PDF entero. Produce hasta cinco preguntas por lote, reduciendo a una o dos para figuras, tablas o varias páginas. Conserva el orden y todas las alternativas.
 
 - Ensayo: enunciado, tablas, figuras, etiquetas y opciones. Una imagen por alternativa gráfica, en su opción.
-- Solucionario correspondiente: respuesta y desarrollo. Transcribe pasos útiles como prosa y math.latex; usa imágenes para diagramas necesarios. No añadas capturas de todas las soluciones junto con su transcripción.
-- Matemática: incluye variables aisladas como m/n en bloques math en línea cuando sean símbolos matemáticos. Revisa signos, exponentes, índices, fracciones, unidades y precios. No conviertas automáticamente letras de la prosa.
+- Solucionario correspondiente: copia la clave y el desarrollo íntegro, sin resumir ni reformular. Usa prosa y math.latex editables, tablas estructuradas e imágenes para diagramas necesarios. No vuelvas a resolver una explicación existente ni dupliques su transcripción con una captura completa. Genera contenido solo donde falte información; documenta conflictos.
+- Matemática: dentro de párrafos usa `math` con `display:false`; fórmulas independientes usan `display:true`. Incluye variables aisladas cuando sean símbolos matemáticos. Conserva párrafos y saltos en los bloques text. Revisa signos, exponentes, índices, radicales, fracciones, unidades y precios. No conviertas automáticamente letras de la prosa.
 - Currículo: clasifica cada pregunta por su contenido usando el [catálogo y contrato M1](../shared/references/curriculum-contract.md). Añade curriculum_provenance con razón y evidencia; conserva incertidumbre.
 
 ~~~text
@@ -43,6 +43,10 @@ python -B scripts/importer.py ingest --run RUN --response batch.json
 Las cajas usan puntos PDF, origen superior izquierdo y orientación visible. Si mides sobre una página PNG completa de W×H píxeles, convierte x con ancho_pdf/W e y con alto_pdf/H. No uses coordenadas de una miniatura o imagen desplazada como si fueran del PDF. Incluye vértices, rótulos, flechas y unidades; evita texto o figuras vecinas. No añadas un margen fijo que invada otra opción. Para corregir geometría utiliza un ID nuevo y actualiza la referencia.
 
 Conserva accepted/unchanged; repara solo rejected. Máximo tres intentos por pregunta; después amplía la evidencia o registra el bloqueo. Estos límites son instrucciones del agente, no un contador automático de inferencias. Las explicaciones tomadas de la pauta llevan origin solution; las redactadas por IA, model. El origen de la respuesta se vincula automáticamente a la pauta. Coteja cada lote mientras sus fuentes siguen en contexto.
+
+Para reutilizar texto nativo sin inferencias, ejecuta `source-text --run RUN --source-id solution --page N` (repite --page para páginas necesarias). Devuelve texto y hash del PDF registrado. Conserva su contenido al convertirlo a bloques; contrasta visualmente orden, notación, tablas y asociación. La extracción no infiere claves ni certifica fidelidad, y un PDF escaneado puede devolver texto vacío.
+
+`crops` devuelve assets y warnings. Rechaza bordes que atraviesan caracteres detectables (`CROP_CLIPS_TEXT`) y avisa de texto próximo (`CROP_NEAR_TEXT`). Examina esos avisos: no amplíes cajas automáticamente hacia otra pregunta. Este control no detecta por sí solo figuras equivocadas, texto rasterizado o etiquetas completamente alejadas; el cotejo visual sigue siendo obligatorio.
 
 ## Comparar antes de entregar
 
@@ -56,6 +60,8 @@ python -B scripts/importer.py record-check --run RUN --response cotejo.json
 
 Si no puedes inspeccionar HTML, usa `capture-review --run RUN` y observa las imágenes de resultado obtenidas. El adaptador opcional requiere Playwright y un navegador externo; `--executable-path RUTA` puede usar uno existente. No es necesario instalarlo si ya inspeccionas HTML. Nunca añadas Chromium al bundle ni descargues navegadores automáticamente. Si tampoco puedes obtener u observar capturas, informa la limitación y conserva revisión visual pendiente; mirar solamente JSON o imágenes del PDF no inspecciona el resultado.
 
+Si el anfitrión bloquea file://, el transporte auto intenta cargar en memoria el mismo HTML y sus recursos locales, sin servidor ni acceso de red. `--transport memory` selecciona esa vía directamente; `--transport file` conserva solo la vía local. Ambas mantienen hashes y recibos de captura. El bloqueo del navegador completo puede impedir ambas.
+
 Completa los seis cotejos de la plantilla con pass/fail/unresolved y evidencia que cubra geométricamente las regiones de cada campo y sus páginas. Conserva render_review y registra `visual_observation:{mode,tool,observation}` por pregunta; para images conserva además capture_receipt. Los hashes vinculan la vista y capturas al contenido vigente, sin demostrar que alguien las revisó. Tras cambios, genera review de nuevo y renueva los cotejos afectados; las preguntas intactas conservan su vista original.
 
 Con pauta completa, resuelve fallos y pendientes antes de empaquetar. Si falta evidencia, conserva la ejecución e informa que está incompleta. En otros flujos se conservan pendientes explícitos, incluyendo respuestas cuya resolución se rechazó.
@@ -68,10 +74,14 @@ python -B scripts/importer.py inspect --package ARCHIVO.paessed
 
 Si route exige revisión independiente, usa [auditoría](audit.md) antes de publicar. La autorrevisión mantiene pending/provisional; no crea estados reviewed/verified.
 
+`quality.gold_eligible` exige contenido completo, los seis cotejos aprobados, evidencia de asociación y observación visual vigente del resultado y sus fuentes. Gold acredita ese alcance de fidelidad declarado; no certifica la corrección matemática del autor. No necesita una segunda resolución. Una clave con procedencia o un paquete estructuralmente válido no obtiene Gold automáticamente.
+
 Entrega .paessed con final.json 0.2.0, manifest.json 0.1.0 y recursos usados; ZIP con bytes idénticos. Las vistas, PDFs y trazas permanecen fuera. Informa cobertura, procedencia y pendientes.
 
 ## Reanudar y herramientas opcionales
 
-`resume --run RUN` comprueba fuentes, release y configuración; no reanuda trabajo de IA automáticamente. `fail --run RUN --reason MOTIVO` conserva una ejecución fallida. Para otra release abre una ejecución nueva.
+`resume --run RUN` comprueba fuentes, release y configuración y devuelve preguntas aceptadas, pendientes de contenido, solución o cotejo, rechazos y siguiente acción. Usa `batch-plan --run RUN --pending-only` para transcribir solo contenido/soluciones pendientes y `check-template --run RUN --question ID` repetido para cotejos pendientes. Continúa los lotes sin pedir instrucciones nuevas mientras la sesión lo permita. Guarda cada lote con ingest; conserva carpeta completa y estado si se interrumpe. Python no inicia ni prolonga sesiones de IA.
+
+`ingest` archiva cada respuesta y sus rechazos en reports/ingest, incluso cuando ninguna pregunta es aceptada. Si el error está en el inventario observado, corrígelo con [repair-map](advanced.md#corregir-observaciones-del-mapa); no inventes fórmulas para satisfacerlo. `fail --run RUN --reason MOTIVO` conserva una ejecución fallida. Para otra release abre una ejecución nueva: no edites hashes de una ejecución antigua para forzar compatibilidad.
 
 Consulta [herramientas avanzadas](advanced.md) solo para transporte PowerShell, planificación de lotes, extracción draft v1, revisión independiente o mediciones de proveedor.

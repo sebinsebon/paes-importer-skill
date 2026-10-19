@@ -3,8 +3,9 @@ import importlib
 import os
 import struct
 import time
+import mimetypes
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlparse, unquote
 from urllib.request import url2pathname
 
 from lab import artifact_path, digest, inside, read, write
@@ -36,9 +37,26 @@ def _local_request_allowed(url, snapshot):
     return path.is_relative_to(snapshot) and path.is_file()
 
 
-def capture_review(folder, reference, *, executable_path=None):
+def memory_request(route, snapshot):
+    """Serve the same snapshot bytes in memory; no request reaches the network."""
+    parsed = urlparse(route.request.url)
+    try:
+        if parsed.scheme != 'https' or parsed.netloc != 'paes-review.invalid':
+            raise ValueError('External review request')
+        path = artifact_path(snapshot, unquote(parsed.path).lstrip('/'))
+        if not path.is_file():
+            raise ValueError('Missing snapshot resource')
+        route.fulfill(status=200, body=path.read_bytes(),
+                      content_type=mimetypes.guess_type(path.name)[0] or 'application/octet-stream')
+    except (ValueError, OSError):
+        route.abort()
+
+
+def capture_review(folder, reference, *, executable_path=None, transport='auto'):
     """Capture a current snapshot into a fresh run directory; preserve failures."""
     from visual_review import validate_review
+    if transport not in ('auto', 'file', 'memory'):
+        raise ValueError('Capture transport must be auto, file or memory')
     folder = external_directory(folder)
     candidate = read(folder/'candidate.json')
     for question in candidate['questions']:
@@ -76,7 +94,25 @@ def capture_review(folder, reference, *, executable_path=None):
                 context.route('**/*', lambda route: route.continue_()
                               if _local_request_allowed(route.request.url, snapshot) else route.abort())
                 page = context.new_page()
-                page.goto((snapshot/'index.html').as_uri(), wait_until='load', timeout=30000)
+                def load_memory():
+                    context.unroute('**/*')
+                    context.route('**/*', lambda route: memory_request(route, snapshot))
+                    html = (snapshot/'index.html').read_text(encoding='utf-8')
+                    html = html.replace('<head>', '<head><base href="https://paes-review.invalid/">', 1)
+                    page.set_content(html, wait_until='load', timeout=30000)
+                    manifest['transport'] = 'memory'
+                if transport == 'memory':
+                    load_memory()
+                else:
+                    try:
+                        page.goto((snapshot/'index.html').as_uri(), wait_until='load', timeout=30000)
+                        manifest['transport'] = 'file'
+                    except Exception as error:
+                        if transport != 'auto' or not any(code in str(error) for code in (
+                                'ERR_BLOCKED_BY_ADMINISTRATOR', 'ERR_ACCESS_DENIED', 'Not allowed to load local resource')):
+                            raise
+                        manifest['file_limitation'] = str(error)
+                        load_memory()
                 page.wait_for_function('window.__PAES_REVIEW_READY__ === true', timeout=30000)
                 page.evaluate('''async () => {
                     await document.fonts.ready;

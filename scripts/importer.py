@@ -306,6 +306,143 @@ def ensure_editable(folder):
 
 
 @candidate_operation
+def repair_mapping(folder, response_file):
+    """Correct source observations, preserving identity, content and prior bytes."""
+    ensure_editable(folder)
+    decision = copy.deepcopy(frozen_route(folder))
+    response = read(response_file)
+    if not isinstance(response.get('reason'), str) or not response['reason'].strip():
+        raise ValueError('Mapping repair needs a source-based reason')
+    selection, candidate, run = (read(folder/name) for name in ('selection.json','candidate.json','run.json'))
+    catalog = read(folder/'catalog.json')
+    mapped = {q['id']: q for q in selection['expected_questions']}
+    changed = set()
+    for replacement in response.get('questions', []):
+        qid = replacement.get('id')
+        if qid not in mapped or qid in changed:
+            raise ValueError('Unknown or duplicate mapping repair question')
+        old = mapped[qid]
+        editable = {'content_inventory','source_fields','regions','field_regions','mapping_pending'}
+        if {k:v for k,v in old.items() if k not in editable} != {k:v for k,v in replacement.items() if k not in editable}:
+            raise ValueError('Mapping repair cannot change question identity or option labels')
+        validate_source_fields(replacement, catalog)
+        validate_inventory_record(replacement, catalog)
+        if any(i['field']=='explanation' for i in replacement['content_inventory']):
+            raise ValueError('Repair explanation inventory in solution_entries')
+        mapped[qid] = replacement
+        changed.add(qid)
+    key = decision.get('answer_key')
+    entries = {e['question_id']: e for e in (key or {}).get('entries', [])}
+    seen = set()
+    for replacement in response.get('solution_entries', []):
+        qid = replacement.get('question_id')
+        if qid not in entries or qid in seen:
+            raise ValueError('Unknown or duplicate solution repair question')
+        old = entries[qid]
+        if {k:v for k,v in old.items() if k not in ('content_inventory','observation')} != {k:v for k,v in replacement.items() if k not in ('content_inventory','observation')}:
+            raise ValueError('Solution repair only changes observed inventory; preserve frozen key/source')
+        entries[qid] = replacement
+        seen.add(qid); changed.add(qid)
+    if not changed:
+        raise ValueError('Mapping repair needs questions or solution_entries')
+    selection['expected_questions'] = [mapped[q['id']] for q in selection['expected_questions']]
+    if key:
+        key['entries'] = [entries[e['question_id']] for e in key['entries']]
+        validate_key(key, candidate)
+    for qid in changed:
+        validate_inventory_record(observed_inventory(mapped[qid], entries.get(qid)), catalog)
+    from checkpoints import commit, json_bytes
+    stamp = str(time.time_ns())
+    original = (folder/'candidate.json').read_bytes()
+    selection_bytes = json_bytes(selection)
+    run.update(selection_hash=json_digest(selection), suite_sha256=__import__('hashlib').sha256(selection_bytes).hexdigest(),
+               route_hash=json_digest(decision))
+    candidate['run'].update(suite_sha256=run['suite_sha256'], answer_key_sha256=json_digest(key) if key else None)
+    updates = {'candidate.json':json_bytes(candidate), 'selection.json':selection_bytes,
+               'run.json':json_bytes(run), 'route.json':json_bytes(decision),
+               'reports/mapping/repair-'+stamp+'.json':json_bytes(response)}
+    if key: updates['answer-key-map.json'] = json_bytes(key)
+    for name in ('self-checks.json','render-reviews.json'):
+        if (folder/name).exists():
+            current = read(folder/name)
+            updates[name] = json_bytes({qid:v for qid,v in current.items() if qid not in changed})
+    # Back up every changed file in the same recoverable transaction.
+    for name in list(updates):
+        if (folder/name).exists():
+            updates['versions/mapping-'+stamp+'/'+name] = (folder/name).read_bytes()
+    commit(folder, updates, original)
+    return {'mapping_repaired':sorted(changed), 'content_preserved':True,
+            'next':'Inspect the corrected source map; repair rejected content and renew affected visual cotejos.'}
+
+
+def progress(folder):
+    """Small continuation summary; never launches an agent or repeats accepted work."""
+    candidate = read(folder/'candidate.json')
+    checks = read(folder/'self-checks.json') if (folder/'self-checks.json').exists() else {}
+    selection = {q['id']:q for q in read(folder/'selection.json')['expected_questions']}
+    key = read(folder/'answer-key-map.json') if (folder/'answer-key-map.json').exists() else {}
+    keys = {e['question_id']:e for e in key.get('entries',[])}
+    accepted, pending, reviews = [], [], []
+    reasons = {}
+    for path in sorted((folder/'reports/ingest').glob('*.json')):
+        attempt = read(path)
+        for row in attempt.get('rejected',[]): reasons[row['question_id']] = row['reason']
+        for qid in attempt.get('accepted',[]) + attempt.get('unchanged',[]): reasons.pop(qid, None)
+    review_cache = {}
+    for q in candidate['questions']:
+        qid = q['id']
+        try:
+            if 'NOT_PROCESSED' in q['issues'] or not q['options']:
+                raise ValueError('No accepted transcription')
+            validate_inventory(q, observed_inventory(selection[qid],keys.get(qid)), candidate)
+            validate_mapping({'questions':[q]}, {'expected_questions':[selection[qid]]})
+            if any(b['type']=='unresolved' for b in __import__('lab').question_blocks(q)):
+                raise ValueError('Source content remains unresolved')
+            accepted.append(qid)
+        except ValueError as error:
+            pending.append(qid); reasons.setdefault(qid,str(error)); continue
+        entry = checks.get(qid)
+        try:
+            if not entry: raise ValueError('No source cotejo')
+            record = read(folder/'reports/self-checks'/entry['report'])
+            check_record(folder, {**record,'questions':[entry['row']]}, candidate, review_cache)
+            if not all(c['status']=='pass' for c in entry['row']['checks'].values()):
+                raise ValueError('Source cotejo is not complete')
+        except (ValueError, OSError, KeyError): reviews.append(qid)
+    deferred = read(folder/'route.json').get('pending_question_ids', [])
+    solution_pending = [q['id'] for q in candidate['questions'] if q['id'] in accepted and q['id'] not in deferred and
+                        (q['answer']['status']=='missing' or q['explanation']['status']=='missing')]
+    return {'accepted_question_ids':accepted, 'pending_question_ids':pending,
+            'pending_solution_ids':solution_pending, 'pending_review_ids':reviews,
+            'deferred_question_ids':deferred,
+            'rejections':[{'question_id':qid,'reason':reason} for qid,reason in reasons.items()],
+            'next':'batch-plan --pending-only' if pending else 'Complete missing solutions or review pending questions' if solution_pending or reviews else 'validate, then pack',
+            'continuation':'The host agent continues while its session permits; resume does not execute AI.'}
+
+
+def source_text(folder, source_id, pages):
+    """Native text for selected physical pages; never infer formulas or answers."""
+    source = next((s for s in read(folder/'sources.json') if s['id']==source_id), None)
+    if source is None or not pages or any(p < 1 or p > source['page_count'] for p in pages):
+        raise ValueError('Select existing source and physical pages')
+    path = read(folder/'sources.local.json')[source_id]
+    if digest(path) != source['sha256']: raise ValueError('Source PDF changed')
+    import pypdfium2 as pdfium
+    result = []
+    with pdfium.PdfDocument(path) as pdf:
+        for number in sorted(set(pages)):
+            page = pdf[number-1]
+            try:
+                text = page.get_textpage()
+                try: value = text.get_text_range()
+                finally: text.close()
+            finally: page.close()
+            result.append({'page':number,'text':value})
+    return {'source_id':source_id,'sha256':source['sha256'],'pages':result,
+            'limitation':'Native extraction only: visually verify association, reading order, tables, accents and mathematical layout; never ingest this as verified content.'}
+
+
+@candidate_operation
 def adapt_draft(folder, draft_file):
     ensure_editable(folder)
     frozen_route(folder)
@@ -325,6 +462,21 @@ def frozen_route(folder):
 
 @candidate_operation
 def ingest(folder, response_file):
+    ensure_editable(folder)
+    frozen_route(folder)
+    response = read(response_file)
+    try:
+        result = ingest_response(folder, response_file)
+    except (ValueError, KeyError, TypeError) as error:
+        rejected = getattr(error, 'rejected', [])
+        archive(folder, 'ingest', {'response':response, 'accepted':[], 'unchanged':[],
+                                  'rejected':rejected, 'error':str(error)})
+        raise
+    name = archive(folder, 'ingest', {'response':response, **result})
+    return {**result, 'attempt_report':'reports/ingest/'+name}
+
+
+def ingest_response(folder, response_file):
     ensure_editable(folder)
     decision = frozen_route(folder)
     raw_response_bytes = Path(response_file).read_bytes()
@@ -363,6 +515,8 @@ def ingest(folder, response_file):
                 provenance = explanations.get(q['id'])
                 if not provenance or provenance.get('origin') not in ('model','solution'):
                     raise ValueError('Every explanation needs model/solution provenance')
+                if key.get(q['id'], {}).get('has_explanation') and provenance['origin'] != 'solution':
+                    raise ValueError('Transcribe the existing solution; do not generate a replacement explanation')
                 if provenance['origin'] == 'solution':
                     if q['id'] not in key or not key[q['id']].get('has_explanation'):
                         raise ValueError('No source justification recorded for this question')
@@ -375,12 +529,17 @@ def ingest(folder, response_file):
         except (ValueError,KeyError,TypeError) as exc:
             rejected.append({'question_id':q['id'],'reason':str(exc)})
     if not prepared:
-        raise ValueError('No questions accepted: '+'; '.join(r['reason'] for r in rejected))
+        error = ValueError('No questions accepted: '+'; '.join(r['reason'] for r in rejected))
+        error.rejected = rejected
+        raise error
     response = {**response, 'questions':prepared, 'curriculum_provenance':{qid:r for qid,r in response.get('curriculum_provenance',{}).items() if qid in {q['id'] for q in prepared}}}
     staged = folder/'requests'/('ingest-'+str(time.time_ns())+'.json')
     write(staged,response)
     try:
         result = engine.ingest(folder, staged, raw_response_bytes=raw_response_bytes, explanation_provenance=explanations)
+    except ValueError as error:
+        error.rejected = rejected + getattr(error, 'rejected', [])
+        raise
     finally:
         staged.unlink(missing_ok=True)
     result['rejected'] = rejected + result['rejected']
@@ -468,7 +627,7 @@ def archive(folder, kind, record):
     return name
 
 
-def check_template(folder):
+def check_template(folder, question_ids=None):
     candidate = read(folder / 'candidate.json')
     previews = read(folder/'render-reviews.json') if (folder/'render-reviews.json').exists() else {}
     return {'run_id': candidate['run']['id'], 'independent': False,
@@ -479,10 +638,10 @@ def check_template(folder):
                            **({'render_review': previews.get(q['id'])} if visual_review.required(folder) else {}),
                            'visual_observation': {'mode':'unavailable','tool':'','observation':''},
                            'checks': {k: {'status': 'unresolved', 'reason': '', 'field_paths': field_paths(q)[k], 'evidence': []} for k in CHECKS}}
-                          for q in candidate['questions']]}
+                          for q in candidate['questions'] if question_ids is None or q['id'] in question_ids]}
 
 
-def check_record(folder, record, candidate):
+def check_record(folder, record, candidate, review_cache=None):
     run = read(folder / 'run.json')
     if (record.get('run_id') != run['id'] or record.get('independent') is not False
             or record.get('session_id') != run['session_id']):
@@ -498,7 +657,7 @@ def check_record(folder, record, candidate):
     provenance = read(folder/'explanation-provenance.json') if (folder/'explanation-provenance.json').exists() else {}
     if candidate['schema_version'] == '0.2.0' and record.get('protocol') != 'source-cotejo-0.2':
         raise ValueError('Source cotejo 0.2 protocol required')
-    review_cache = {}
+    review_cache = {} if review_cache is None else review_cache
     for row in rows:
         q = by_id.get(row['id'])
         if (not q or row.get('content_sha256') != engine.content_hash(q, candidate, folder)
@@ -600,8 +759,16 @@ def validate_for_pack(folder):
         if entry['row'] not in bound:
             raise ValueError('Self-check archive binding mismatch')
     result = summarize(candidate, checks)
+    # These rows have just passed check_record, including source association,
+    # hashes and rendered-result evidence. Status flags alone never confer Gold.
+    result['gold_eligible'] = bool(candidate['questions']) and result['publication_eligibility'] == 'complete' and visual_review.required(folder) and all(
+        all(c['status'] == 'pass' for c in checks[q['id']]['row']['checks'].values()) and
+        checks[q['id']]['row'].get('visual_observation', {}).get('mode') in ('html','images')
+        for q in candidate['questions'])
+    result['gold_basis'] = 'Visual fidelity to exam and available solution; not independent mathematical correctness'
     for q in candidate['questions']:
         if mapped[q['id']].get('mapping_pending'):
+            result['gold_eligible'] = False
             result['issues'].append({'question_id':q['id'],'field':'options','code':'MAPPING_PENDING','severity':'warning'})
             if result['publication_eligibility'] != 'blocked': result['publication_eligibility'] = 'partial'
     write(folder/'quality-report.json', result)
@@ -734,11 +901,14 @@ def main():
     p.add_argument('action', choices=['prepare', 'check', 'decisions', 'consolidate', 'add-evidence', 'commit-reading'])
     p.add_argument('--run', required=True); p.add_argument('--session-id', default='unknown')
     p.add_argument('--decisions'); p.add_argument('--batch'); p.add_argument('--requests'); p.add_argument('--response')
-    for name in ('map', 'route', 'ingest', 'record-input', 'record-usage', 'batch-plan', 'review', 'capture-review', 'check-template', 'record-check', 'crops',
+    for name in ('map', 'repair-map', 'source-text', 'route', 'ingest', 'record-input', 'record-usage', 'batch-plan', 'review', 'capture-review', 'check-template', 'record-check', 'crops',
                  'validate', 'pack', 'baseline', 'resume', 'fail'):
         p = sub.add_parser(name); p.add_argument('--run', required=True)
         if name == 'map': p.add_argument('--selection', required=True)
-        if name in ('ingest', 'record-input', 'record-check', 'record-usage'): p.add_argument('--response', required=True)
+        if name == 'source-text':
+            p.add_argument('--source-id', required=True)
+            p.add_argument('--page', type=int, action='append', required=True)
+        if name in ('ingest', 'repair-map', 'record-input', 'record-check', 'record-usage'): p.add_argument('--response', required=True)
         if name == 'route':
             p.add_argument('--answer-key'); p.add_argument('--subagents', action='store_true')
             p.add_argument('--experimental', choices=['yes', 'no'])
@@ -746,9 +916,13 @@ def main():
             review.add_argument('--review-question', action='append', default=[])
             review.add_argument('--review-all', action='store_true')
         if name == 'crops': p.add_argument('--requests', required=True)
-        if name == 'capture-review': p.add_argument('--executable-path')
+        if name == 'capture-review':
+            p.add_argument('--executable-path')
+            p.add_argument('--transport', choices=['auto','file','memory'], default='auto')
+        if name == 'check-template': p.add_argument('--question', action='append')
         if name == 'batch-plan':
             p.add_argument('--batch-size',type=int,default=5); p.add_argument('--max-characters',type=int,default=24000)
+            p.add_argument('--pending-only', action='store_true')
         if name == 'fail': p.add_argument('--reason', required=True)
     args = parser.parse_args()
     stage_started = time.perf_counter()
@@ -760,6 +934,8 @@ def main():
         else:
             folder = base_folder(args.run)
             if args.command == 'map': result = map_questions(folder, args.selection)
+            elif args.command == 'repair-map': result = repair_mapping(folder, args.response)
+            elif args.command == 'source-text': result = source_text(folder,args.source_id,args.page)
             elif args.command == 'route':
                 review_ids = [q['id'] for q in read(folder/'candidate.json')['questions']] if args.review_all else args.review_question or None
                 result = route(folder, args.answer_key, args.subagents, args.experimental, review_ids)
@@ -770,16 +946,21 @@ def main():
             elif args.command == 'batch-plan':
                 frozen_route(folder)
                 from batch_plan import plan_batches
+                remaining = progress(folder) if args.pending_only else None
                 result = plan_batches(read(folder/'candidate.json'),args.batch_size,args.max_characters,
-                                      selection=read(folder/'selection.json'), route=read(folder/'route.json'))
-            elif args.command == 'check-template': result = check_template(folder)
+                                      selection=read(folder/'selection.json'), route=read(folder/'route.json'),
+                                      question_ids=remaining['pending_question_ids']+remaining['pending_solution_ids'] if remaining else None)
+            elif args.command == 'check-template':
+                if args.question and not set(args.question).issubset(q['id'] for q in read(folder/'candidate.json')['questions']):
+                    raise ValueError('Unknown check-template question')
+                result = check_template(folder,args.question)
             elif args.command == 'capture-review':
                 ensure_editable(folder)
                 frozen_route(folder)
                 references = read(folder/'render-reviews.json')
                 if not references: raise ValueError('Generate review before capture-review')
                 from capture_review import capture_review
-                result = capture_review(folder, next(iter(references.values())), executable_path=args.executable_path)
+                result = capture_review(folder, next(iter(references.values())), executable_path=args.executable_path, transport=args.transport)
             elif args.command == 'review':
                 with __import__('checkpoints').state_lock(folder):
                     ensure_editable(folder)
@@ -789,7 +970,9 @@ def main():
             elif args.command == 'crops':
                 ensure_editable(folder)
                 frozen_route(folder)
-                result = apply_crops(folder, read(args.requests)); engine.sync_assets(folder)
+                additions = apply_crops(folder, read(args.requests)); engine.sync_assets(folder)
+                ids = {a['id'] for a in additions}
+                result = {'assets':additions, 'warnings':[w for w in read(folder/'catalog.json').get('warnings',[]) if w.get('asset_id') in ids]}
             elif args.command == 'validate': result = validate_for_pack(folder)[1]
             elif args.command == 'pack': result = publish_base(folder)
             elif args.command == 'baseline': result = baseline(folder)
@@ -803,6 +986,7 @@ def main():
                 else:
                     result = engine.verify_resume(folder)
                     if (folder / 'route.json').exists(): frozen_route(folder)
+                    if run['status'] == 'awaiting_ai': result.update(progress(folder))
         if args.command == 'prepare': folder = Path(result['run'])
         if folder is not None:
             event(folder,'command_'+args.command,duration_seconds=time.perf_counter()-stage_started,outcome='completed')

@@ -1,5 +1,5 @@
 {
-  "version": "1.4.0-portable",
+  "version": "1.4.1-portable",
   "protocol_version": "0.4.0",
   "files": [
     {
@@ -12,19 +12,19 @@
     },
     {
       "path": "README.md",
-      "sha256": "d60f72875416dfffa7c2876fede2d5f85e9376c18749d4ff16896e432536b132"
+      "sha256": "22374a7dbe913f638c61d0a044f12870cf83820637f061f86945639c1a9a7d01"
     },
     {
       "path": "SKILL.md",
-      "sha256": "f6557322425b2e6d2b2f5242d1474eb0e95a0286fcd4b2b7c4c2810e7d337f17"
+      "sha256": "61da2237f3d6b7fa3f842f5abf0171d347bf7b101a9f0895248e7b95a3cbda5c"
     },
     {
       "path": "flows/01-chat-con-solucionario/WORKFLOW.md",
-      "sha256": "daf5497885ef05495490254314521fcda736d81bc18b0191de0fe17defd07e74"
+      "sha256": "01e5dcf764992f88f8399cc03b55b0497cadbfafc454b9a85c69d7dcb63d1063"
     },
     {
       "path": "flows/02-cli-con-solucionario/WORKFLOW.md",
-      "sha256": "0994b03c94321655e0b8dc458057033e25ace99ad21d10d61e3f62a335958ee6"
+      "sha256": "3557510764e588dfbdde3fba6a51b5538e80d7e9008c431e262136779973a0e6"
     },
     {
       "path": "flows/03-cli-sin-solucionario/WORKFLOW.md",
@@ -36,11 +36,11 @@
     },
     {
       "path": "references/advanced.md",
-      "sha256": "910d2b79d72d0436e23edfc1fd62c1be6cc0d2c2eeb674acee52047e98e1ea6c"
+      "sha256": "de4ec8870e6d3cf90290fc5634c17c09ce4908691ffb52bb6ee860e02976228d"
     },
     {
       "path": "references/audit.md",
-      "sha256": "bbc2b95949b3283c2381dade9449dc303840cec5ab503a2a5f08355143de64ce"
+      "sha256": "c934fd2bf0a15f9767199c768bb319cae13fc8606b3e020b7f1a94885b42d80d"
     },
     {
       "path": "references/hosts.md",
@@ -48,7 +48,7 @@
     },
     {
       "path": "references/interfaces.md",
-      "sha256": "035a1a73f220b93c7205677979192ce8c6638f020b8bf6c28f6a2b86f0f000df"
+      "sha256": "30db9dd33fea2ff03c370bf7a28f611f31d05925faa31385820052d62c761fdf"
     },
     {
       "path": "references/representation.md",
@@ -56,7 +56,7 @@
     },
     {
       "path": "references/workflow.md",
-      "sha256": "f6bf255a3242371c2bef76c7e72caa8b8ac9f9c3535e84222fed0e79c1f353b6"
+      "sha256": "46d8466caabc8d22be83d7c976f3a2170700ceb70561ee5808d2632174de8e76"
     },
     {
       "path": "requirements-visual.txt",
@@ -76,7 +76,7 @@
     },
     {
       "path": "scripts/importer.py",
-      "sha256": "90f4c6a1f36d883daf754a4ff2363ca6520329133224ec79182ffe581a820876"
+      "sha256": "8a42ef156c134af3fa63e3a474da0489926a28c50bb21c8e6d591f0629ba3cfd"
     },
     {
       "path": "scripts/policy.py",
@@ -88,7 +88,7 @@
     },
     {
       "path": "scripts/verify.py",
-      "sha256": "9520512c7dba69724f6f5c00933db3d626fa556fd771b00ade782b72379854e6"
+      "sha256": "b692aec7728ca40e48077625e2bbde1154d20613525c61f70baa65f2527082f8"
     },
     {
       "path": "scripts/write_json.ps1",
@@ -128,11 +128,11 @@
     },
     {
       "path": "shared/scripts/batch_plan.py",
-      "sha256": "511abaad32679d82059f3cd49e9667929d4896e5573547ec600ec3e4d1cb8a2f"
+      "sha256": "666acfa28e1974e12c4273f344577d4e10ee4c67dd48f61304ea14196b304d49"
     },
     {
       "path": "shared/scripts/capture_review.py",
-      "sha256": "b8bb0af291923e7528c725a9eefa067fad1253ec65b1c6ce8d87e7e6e5952b0d"
+      "sha256": "c0371095ef60ee8528d1cad436d0e416c8ae2728abdcc37c4499cef4822f1305"
     },
     {
       "path": "shared/scripts/check_final.cjs",
@@ -152,7 +152,7 @@
     },
     {
       "path": "shared/scripts/content_inventory.py",
-      "sha256": "36d7f9b2df0032a23fc7a08122ca26318b00047081bae0b0f24a76a43d011829"
+      "sha256": "e9af4b793dc592a50dbb78738cd5dd7e005602b3c61cfc8a32a9b72549a506f3"
     },
     {
       "path": "shared/scripts/curriculum.py",
@@ -208,11 +208,11 @@
     },
     {
       "path": "shared/scripts/pdf_assets.py",
-      "sha256": "41ebc9323d512b56dc38417be8026292e9d50c0d747e83fad611237655875911"
+      "sha256": "3392399d6fec1e5b4113c5c9af3b5eb6f70916e80d33c48b9a19c8790f40a0e4"
     },
     {
       "path": "shared/scripts/pipeline.py",
-      "sha256": "5d0358f64c9fae12695db560bfb3304eb25d6de84ddfa9702f433e2f353f7522"
+      "sha256": "b92fd0ea52538b588df33b6be14d173c054a993c50b5cf36e7e0d02eba3ed3a6"
     },
     {
       "path": "shared/scripts/quality.py",
@@ -236,7 +236,7 @@
     },
     {
       "path": "viewer/block-renderer.js",
-      "sha256": "9063bcaae4487aafe187d0f0e34d58f551349bdc7ba668919a1166ed26d3bd4b"
+      "sha256": "78f784af71bc0512b1778d1252b5460eb9f8d2bae3df6303ed92c9e61669a1c7"
     },
     {
       "path": "viewer/package-reader.js",

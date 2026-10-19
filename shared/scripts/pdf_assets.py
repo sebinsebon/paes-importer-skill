@@ -48,6 +48,37 @@ def source_record(source_id, path, role='exam'):
                 'page_count': len(pdf), 'role': role}
 
 
+def crop_text_warnings(page, box):
+    """Inspect actual glyph geometry, independently of the agent's inventory.
+
+    Fully excluded nearby labels are warnings, not automatic associations.
+    Complex vector figures still require source/result visual comparison.
+    """
+    width, height = map(float, page.get_size())
+    x0, y0, x1, y1 = box
+    clipped, nearby = [], []
+    text = page.get_textpage()
+    try:
+        for index in range(text.count_chars()):
+            character = text.get_text_range(index, 1)
+            if not character.strip():
+                continue
+            rect = visible_bounds(text.get_charbox(index), page.get_rotation(), width, height)
+            left, top, right, bottom = rect
+            if right <= left or bottom <= top:
+                continue
+            intersects = min(x1, right) - max(x0, left) > .25 and min(y1, bottom) - max(y0, top) > .25
+            contained = x0-.25 <= left and y0-.25 <= top and right <= x1+.25 and bottom <= y1+.25
+            item = {'text': character, 'bbox': [round(v, 3) for v in rect]}
+            if intersects and not contained:
+                clipped.append(item)
+            elif not contained and left < x1+12 and right > x0-12 and top < y1+12 and bottom > y0-12:
+                nearby.append(item)
+    finally:
+        text.close()
+    return {'clipped_text': clipped, 'nearby_text': nearby}
+
+
 def resource(source, page_no, box, path, root, resource_id):
     return {'id': resource_id, 'path': Path(path).relative_to(root).as_posix(),
             'sha256': digest(path), 'mime': 'image/png', 'source_id': source,
@@ -107,6 +138,7 @@ def apply_crops(run_dir, requests):
     ids = {r['id']: r for r in catalog['assets'] + catalog['evidence']}
     additions = []
     pending=[]
+    warnings=[]
     seen=set()
     for req in requests:
         rid = req['id']
@@ -142,6 +174,15 @@ def apply_crops(run_dir, requests):
             try:
                 width,height=page.get_size()
                 bbox(box,width,height)
+                if folder == 'assets':
+                    diagnostic = crop_text_warnings(page, box)
+                    if diagnostic['clipped_text']:
+                        raise ValueError(rid + ': CROP_CLIPS_TEXT ' + str(diagnostic['clipped_text'][:12]) +
+                                         '; inspect the source and include complete labels using a new crop ID')
+                    if diagnostic['nearby_text']:
+                        warnings.append({'asset_id':rid, 'source_id':source_id, 'page':page_no,
+                                         'code':'CROP_NEAR_TEXT', 'details':diagnostic['nearby_text'],
+                                         'action':'Inspect source context: nearby labels may belong to the figure.'})
             finally:
                 page.close()
         pending.append((rid,folder,source_id,source_path,page_no,box,output))
@@ -162,7 +203,8 @@ def apply_crops(run_dir, requests):
             output.parent.mkdir(parents=True,exist_ok=True)
             os.replace(staging/f'{rid}.png',output);published.append(output)
         # catalog is the commit point; original request JSON lives in the run.
-        write(run_dir/'crop-history'/f'{uuid.uuid4().hex}.json',{'requests':requests,'additions':additions})
+        catalog.setdefault('warnings', []).extend(warnings)
+        write(run_dir/'crop-history'/f'{uuid.uuid4().hex}.json',{'requests':requests,'additions':additions,'warnings':warnings})
         write(run_dir / 'catalog.json', catalog)
     except Exception:
         for path in published:path.unlink(missing_ok=True)

@@ -41,6 +41,8 @@ Si tampoco puede obtener e inspeccionar capturas, el agente informa la limitaci�
 
 ## Salida y contrato
 
+La versión **1.4.1-portable** preserva matemática inline y display, reutiliza desarrollos íntegros del solucionario y facilita continuar únicamente pendientes. Gold requiere cotejo visual completo y asociación con las fuentes; no exige resolver de nuevo ni promover respuestas a verified. Los estados del contrato 0.2.0 se conservan. Consulta la [operación común](references/workflow.md) para recuperación, captura en memoria y extracción de texto nativo.
+
 ~~~text
 EnsayosPaessedOutput/
   m1-<nombre-observado>/

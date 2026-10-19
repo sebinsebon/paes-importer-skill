@@ -182,7 +182,7 @@ def validate_inventory(question, record, candidate):
             for symbol in item.get('symbols', []):
                 if symbol not in variables:
                     raise ValueError(prefix + ': variable ' + symbol + ' needs math.latex')
-                bare = any(re.search(r'(?<!\w)' + re.escape(symbol) + r'(?!\w)', b.get('text', '')) for b in field_blocks if b['type'] == 'text')
+                bare = any(bare_variable(b.get('text', ''), symbol) for b in field_blocks if b['type'] == 'text')
                 exceptions = [e for e in item.get('text_exceptions', []) if e.get('symbol') == symbol and
                               e.get('reason', '').strip() and cover_regions(item['regions'], e.get('regions', []))]
                 if bare and not exceptions:
@@ -198,3 +198,18 @@ def validate_inventory(question, record, candidate):
                     normalize = lambda text: ' '.join(text.split())
                     if [normalize(h) for h in headers] != [normalize(h) for h in shape['headers']]:
                         raise ValueError(prefix + ': TABLE_HEADERS_MISMATCH')
+
+
+def bare_variable(text, symbol):
+    """Letters in Spanish prose are not, by themselves, evidence of mathematics.
+
+    An isolated span or a letter next to an operator is still mathematical.
+    Ambiguous prose is resolved by the source cotejo, never by rewriting it.
+    """
+    token = r'(?<!\w)' + re.escape(symbol) + r'(?!\w)'
+    if not re.search(token, text):
+        return False
+    if symbol not in ('a', 'y', 'e', 'o', 'u') or text.strip() == symbol:
+        return True
+    return bool(re.search(token + r'\s*[=+*/^<>≤≥−]', text) or
+                re.search(r'[=+*/^<>≤≥−]\s*' + token, text))

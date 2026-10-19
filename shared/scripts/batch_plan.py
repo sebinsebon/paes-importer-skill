@@ -12,7 +12,7 @@ def blocks_with_children(blocks):
                 for cell in row:
                     yield from blocks_with_children(cell)
 
-def plan_batches(candidate, max_questions=5, max_characters=24000, *, selection=None, route=None):
+def plan_batches(candidate, max_questions=5, max_characters=24000, *, selection=None, route=None, question_ids=None):
     if type(max_questions) is not int or not 1 <= max_questions <= 10:
         raise ValueError('max_questions must be 1..10')
     if type(max_characters) is not int or max_characters < 1:
@@ -27,9 +27,14 @@ def plan_batches(candidate, max_questions=5, max_characters=24000, *, selection=
     keys = {e['question_id']: e for e in ((route or {}).get('answer_key') or {}).get('entries', [])}
     if selection is not None and set(mapping) != set(ids):
         raise ValueError('Batch plan requires exact frozen selection coverage')
+    selected = set(ids if question_ids is None else question_ids)
+    if not selected.issubset(ids):
+        raise ValueError('Batch selection outside mapped questions')
     index = []
     page_index = {}
     for question in questions:
+        if question['id'] not in selected:
+            continue
         blocks = list(blocks_with_children(question['stem']))
         for option in question['options']:
             blocks.extend(blocks_with_children(option['blocks']))
