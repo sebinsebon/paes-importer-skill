@@ -12,6 +12,10 @@ SKILL.md enruta a uno de cuatro WORKFLOW.md cuando el anfitrión puede leer el b
 
 No confundir pruebas sintéticas con pruebas reales de productos. Las herramientas dependen de cuenta/sesión; observarlas al comenzar. Leer texto de un PDF no implica comprender sus gráficos.
 
+Además de leer PDF, el anfitrión debe poder observar el resultado renderizado. Prefiere inspección HTML disponible en la sesión. Si falta, usa capturas con el adaptador opcional y un navegador externo existente o preparado aparte. Playwright no pertenece al runtime mínimo y no se distribuyen navegadores. Si ambas vías faltan, registra result_visual.mode unavailable, informa la limitación y conserva cotejos pendientes.
+
+Instalación, salida y herramientas se resuelven desde el bundle operativo: no se busca código en paes-importer-dev ni en un proyecto padre. Los entornos y temporales permanecen externos. Los tests y herramientas de mantenimiento no son requisitos del anfitrión.
+
 Codex: bundle completo bajo .agents/skills/paes-importer o lectura explícita por ruta. Para independencia, agentes sin historial heredado (fork_turns=none donde exista esa API), solo su lote e instrucciones mínimas. Fuentes oficiales: https://learn.chatgpt.com/docs/build-skills y https://learn.chatgpt.com/docs/agent-configuration/subagents.
 
 Claude Code: bundle completo bajo .claude/skills/paes-importer o lectura explícita. Usar un subagente nuevo por lote; evitar forks que hereden historial productor. Fuentes oficiales: https://code.claude.com/docs/en/skills y https://code.claude.com/docs/en/sub-agents.

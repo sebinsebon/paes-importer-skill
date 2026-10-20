@@ -5,26 +5,63 @@ Los ejemplos son ficticios. Los scripts no detectan semánticamente preguntas o 
 ## selection.json
 
 ~~~json
-{"title":"Ensayo M1 identificado en portada","observed_question_count":2,"observation":"Dos preguntas localizadas visualmente", "expected_questions":[{"id":"exam-q1","source_id":"exam","number":"1","page":2,"option_labels":["A","B","C","D"]},{"id":"exam-q2","source_id":"exam","number":"2","page":3,"option_labels":["A","B","C","D"]}]}
+{"title":"Ejemplo ficticio M1","observed_question_count":1,"observation":"Una pregunta ficticia con tabla y dos alternativas","expected_questions":[{"id":"exam-q1","source_id":"exam","number":"1","page":2,"option_labels":["A","B"],"regions":[{"page":2,"bbox":[20,40,500,650]}],"source_fields":{"stem":[{"page":2,"bbox":[40,60,450,260]}],"options/A":[{"page":2,"bbox":[40,300,250,340]}],"options/B":[{"page":2,"bbox":[40,360,250,400]}]},"content_inventory":[{"field":"stem","type":"math","count":1,"symbols":["m","n"],"regions":[{"page":2,"bbox":[40,60,450,100]}]},{"field":"stem","type":"table","count":1,"shape":{"rows":2,"columns":2,"headers":["m","n"]},"regions":[{"page":2,"bbox":[40,120,450,260]}]}]}]}
 ~~~
 
-IDs seguros y únicos; número como string, página física desde 1. El total observado debe coincidir con el mapa. Las preguntas solo pertenecen a exam. El título es observado; la raíz del candidato usa scope full. Registrar option_labels en el orden observado y regiones de cada pregunta, incluyendo páginas adicionales; no deducir alternativas faltantes del número esperado. option_labels es obligatorio salvo mapping_pending:true explícito. Si la fuente no permite observarlas, conservar mapping_pending:true, contenido unresolved y cobertura parcial. No usar el flag para aprobar una pregunta resuelta sin sus alternativas observadas. field_regions por dimensión permite asociar regiones concretas a los cotejos.
+IDs seguros y únicos; número como string y página física desde 1. El total observado coincide con el mapa, pero ese control no detecta por sí solo una pregunta omitida del PDF. Las preguntas pertenecen a exam. Registra option_labels en orden y todas las páginas esenciales. `source_fields` contiene `stem` y `options/ETIQUETA`, cada uno con regiones esenciales completas: texto, números, rótulos y unidades. Incluye todas las páginas de un campo que continúa. Estas regiones también delimitan dónde puede permanecer su recorte, sin invadir una alternativa vecina. Las regiones del candidato y la unión de citas deben cubrirlas. `field_regions` permite requisitos adicionales por dimensión de cotejo; no sustituye source_fields.
+
+Si no puedes observar las alternativas o regiones, usa `mapping_pending:true`, contenido unresolved y entrega parcial. No lo uses para aprobar una pregunta completa sin mapa.
+
+`content_inventory` se observa desde el PDF antes de transcribir y queda congelado fuera de final.json. Agrupa field (`stem` u `options/ETIQUETA`) y type (`image`, `table`, `math`), count mínimo positivo y regiones completas. `[]` declara ausencia observada de estructuras. Las tablas editables registran `shape:{rows,columns,headers}`; para varias, `shapes:[...]` en orden. Las figuras requieren un recurso de su campo que contenga lo observado y permanezca dentro de source_fields.
+
+Para matemática, `symbols` enumera variables de una letra. Cada aparición matemática se representa mediante math, también dentro de la prosa. Si una letra aislada es una abreviatura legítima, `text_exceptions:[{symbol,reason,regions}]` documenta la excepción localizada antes de congelar el mapa; no convierte la prosa automáticamente. El inventario detecta omisiones declaradas, sin demostrar comprensión.
+
+Un bloque unresolved explícito conserva el campo pendiente cuando falta evidencia legible. No satisface una entrega completa con pauta; los otros flujos pueden conservarlo en un paquete parcial.
 
 ## key.json
 
 ~~~json
-{"exam_sha256":"HASH_REAL_DEL_EXAMEN", "match":{"status":"matched","reason":"Identidad y numeración contrastadas","evidence":[{"source_id":"solution","page":1,"observation":"Identificación del mismo ensayo"}]},"entries":[{"question_id":"exam-q1","label":"B","source_id":"solution","page":2,"observation":"Fila 1 de la pauta","has_explanation":false}]}
+{"exam_sha256":"HASH_REAL_DEL_EXAMEN", "match":{"status":"matched","reason":"Identidad y numeración contrastadas","evidence":[{"source_id":"solution","page":1,"observation":"Identificación del mismo ensayo"}]},"entries":[{"question_id":"exam-q1","label":"A","source_id":"solution","page":2,"observation":"Fila 1 de la pauta","has_explanation":false}]}
 ~~~
 
 Con pauta integrada, source_id es exam. Registra únicamente entradas legibles y asociadas; duplicados, preguntas inexistentes, páginas inválidas y asociación no matched se rechazan. Una pauta parcial es válida. has_explanation=true permite procedencia solution para una explicación tomada de esa página. Si la justificación está en otra página, registra esa página en la entrada y describe dónde aparece también la respuesta.
 
+Si la respuesta/desarrollo ocupa varias páginas, añade `pages:[2,3]` a la entrada, incluyendo su `page` principal. Se validan páginas físicas distintas y la vista incluye todas ellas; los cotejos de respuesta/explicación deben cubrir todas las páginas registradas de esa fuente.
+
+Con `has_explanation:true`, añade `content_inventory` observado del desarrollo, con `field:"explanation"`, `source_id` real y las mismas estructuras de tabla, matemática o imagen. Usa `[]` solo para desarrollo observado sin esas estructuras. Este inventario queda vinculado a la pauta congelada.
+
 ## batch.json
 
 ~~~json
-{"run_id":"ID_REAL", "questions":["PREGUNTAS_COMPLETAS_SEGUN_CONTRATO"], "explanation_provenance":{"exam-q1":{"origin":"model"},"exam-q2":{"origin":"solution","source_id":"solution","page":2}}}
+{
+  "run_id":"ejemplo-ficticio",
+  "questions":[{
+    "id":"exam-q1","source_id":"exam","number":"1",
+    "regions":[{"page":2,"bbox":[20,40,500,650]}],
+    "stem":[
+      {"type":"text","text":"Según la tabla, calcula "},
+      {"type":"math","latex":"\\frac{m}{n}","display":false},
+      {"type":"text","text":"."},
+      {"type":"table","rows":[
+        [[{"type":"math","latex":"m","display":false}],[{"type":"math","latex":"n","display":false}]],
+        [[{"type":"math","latex":"6","display":false}],[{"type":"math","latex":"3","display":false}]]
+      ]}
+    ],
+    "options":[
+      {"label":"A","blocks":[{"type":"math","latex":"2","display":false}]},
+      {"label":"B","blocks":[{"type":"math","latex":"3","display":false}]}
+    ],
+    "answer":{"label":"A","status":"provisional","origin":"model","source_ref":null},
+    "explanation":{"blocks":[{"type":"math","latex":"\\frac{6}{3}=2","display":true}],"status":"provisional"},
+    "fidelity":{"status":"pending","review_ref":null},"issues":[],
+    "curriculum":{"eje":"Números","subeje":"Conjunto de los números enteros y racionales","en_temario":"si"}
+  }],
+  "explanation_provenance":{"exam-q1":{"origin":"model"}},
+  "curriculum_provenance":{"exam-q1":{"reason":"La operación central es división de enteros","evidence":[{"source_id":"exam","page":2,"observation":"Cociente de valores enteros de la tabla"}]}}
+}
 ~~~
 
-questions contiene objetos del [contrato](../shared/references/content-contract.md), no los strings ilustrativos. Cada explicación no vacía requiere procedencia; las propuestas de IA usan model, incluso con respuesta de pauta. Fidelidad pending, respuesta/explanation provisional o missing. Las respuestas de pauta se vinculan determinísticamente a la entrada congelada al ingerir; no necesitan una solución independiente para importarse.
+El ejemplo es una pregunta completa del [contrato](../shared/references/content-contract.md); sustituye run_id, identidad, geometría y contenido por los de la ejecución real. Las figuras se incorporan como en [representación](representation.md#opciones-gráficas), tras crear sus recursos. Cada explicación no vacía requiere procedencia; las redactadas por IA usan model incluso con respuesta de pauta. Fidelidad pending; respuesta/explanation provisional o missing. Las respuestas de pauta se vinculan a su entrada congelada durante ingest.
 
 ## crops.json
 
@@ -34,9 +71,23 @@ questions contiene objetos del [contrato](../shared/references/content-contract.
 
 Puntos PDF, origen superior izquierdo y orientación visible. Conservar figura completa, unidades y etiquetas; para alternativas visuales, asociar cada una a su etiqueta. Los bloques image referencian el id del recurso. Un crop de auditoría usa role evidence; no se incorpora al paquete por defecto. IDs nuevos; no sobrescribir recursos con distinta geometría.
 
+En una página PNG completa de tamaño W×H, `x_pdf = x_pixel * ancho_pdf / W`, `y_pdf = y_pixel * alto_pdf / H`. Consulta ancho/alto y rotación en catalog.json; no mezcles coordenadas de miniaturas con puntos PDF. Verifica el recorte en `review` antes de dar pass.
+
+## review
+
+`review --run RUN` genera una carpeta nueva bajo `.work/base/reviews/` con HTML local, renderer, KaTeX, páginas de fuente, cajas de pregunta/recorte/inventario y recursos usados. Incluye las páginas de pauta y explicación registradas aunque no haya imágenes del solucionario. Devuelve html y render_review; abre la vista y compara cada pregunta completa.
+
+`render-reviews.json` guarda referencias a vistas; cada fila de check-template incorpora render_review `{path,sha256}`. Conserva ese campo al registrar cotejos. Sus hashes vinculan contenido, solución, imágenes y archivos de la vista. Una edición exige generar una vista nueva y renovar los cotejos afectados. El HTML, las fuentes y las constancias quedan fuera del paquete. Esta operación no acredita que alguien abrió la vista.
+
+Primero inspecciona el HTML con tus herramientas. Si necesitas capturas, `capture-review --run RUN` usa la dependencia opcional y un navegador externo; `--executable-path RUTA` selecciona un navegador existente. No instala ni descarga navegadores. Devuelve `capture_receipt:{path,sha256}` para conservar en cotejos de modo images. Si falla, informa la limitación y no marques pass.
+
 ## cotejo.json
 
 Usa check-template para hashes de versión. La raíz contiene run_id, independent=false, session_id del productor y questions. Cada fila: id, content_sha256, solution_sha256 y checks con stem/options/assets_math/answer/explanation/consistency. Cada check: status pass/fail/unresolved, reason, field_paths y evidence [{id,sha256,observation,fields}] de imágenes enumeradas en el candidato. Copiar field_paths de la plantilla; cada cita.fields nombra las rutas que esa imagen realmente cubre. La unión de citas debe cubrir exactamente las rutas requeridas: opciones por etiqueta, fórmulas/figuras/tablas por ruta. Un hash de portada o una imagen de otra pregunta no bastan. La fuente de la pauta/solución se comprueba por separado para answer/explanation. No describe revisión independiente.
+
+Cada fila conserva `render_review` y añade `visual_observation:{mode,tool,observation}`. mode es `html`, `images` o `unavailable`. En modo images añade `capture_receipt` dentro de visual_observation. La constancia debe corresponder a esa vista y pregunta; generar capturas no acredita su inspección. `unavailable` no permite aprobar el cotejo.
+
+Con pauta completa, validate/pack rechazan cotejos fallidos o pendientes, contenido sin resolver, respuestas/explicaciones faltantes y mapeo/currículo incompletos. Una respuesta provisional con cotejo completo sigue siendo publicable; no exige ni inventa verified. Los otros flujos conservan paquetes parciales explícitos.
 
 ## Estados y metadatos
 
@@ -46,42 +97,37 @@ source_ref de una respuesta de pauta apunta a .work/base/answer-key-map.json#ID.
 
 El cotejo del productor mantiene estados provisionales/pending. reviewed/verified exige informe independiente, evidencia y decisiones vinculadas. No son equivalentes a una pauta oficial o acierto garantizado. Si hay discrepancia con pauta, conserva su origen y la incidencia; no la sustituuyas silenciosamente.
 
+Gold se informa en `run.quality.gold_eligible`: requiere fidelidad visual completa y evidencia vigente, sin exigir reviewed/verified ni resolución matemática independiente. `origin:answer-key` identifica procedencia, no revisión. Una respuesta con fuente puede seguir siendo provisional y ser elegible para Gold cuando todos los cotejos estén completos. Una revisión independiente de una solución existente verifica su transcripción y asociación; no garantiza que el autor resolviera correctamente.
+
+Si has_explanation es true, ingest exige origin solution para una explicación no vacía. Copia el desarrollo completo, incluyendo matemática, tablas e imágenes; no lo reemplaces por una explicación del modelo. Las conjunciones/preposiciones españolas a/y/e/o/u no son automáticamente variables por compartir letra. Las apariciones ambiguas dentro de prosa requieren cotejo visual; las expresiones y variables matemáticas van en math inline.
+
 
 ## Contrato curricular 0.2.0
 
-Toda nueva importación M1 incorpora questions[].curriculum = {eje, subeje, en_temario}. Clasificar automáticamente cada pregunta por su contenido usando los cuatro ejes y 16 subejes de shared/references/curriculum-m1.json; consultar shared/references/curriculum-contract.md para pertenencia, evidencia y pendientes. No copiar la taxonomía de TESLA ni inferir desde numeración. Cada lote añade curriculum_provenance[id] con reason y evidence [{source_id,page,observation}]. Clasificar también preguntas sin pauta o cuya resolución experimental se rechazó. Conservar la incertidumbre como dudoso; un par null requiere CURRICULUM_PENDING y entrega curricular parcial. Los lectores admiten finales históricos 0.1.0 sin inventar clasificación; el manifiesto del paquete sigue en 0.1.0.
+Sigue el [contrato curricular normativo](../shared/references/curriculum-contract.md) y su catálogo M1. Cada lote entrega curriculum y curriculum_provenance, como en el ejemplo completo. Clasifica también preguntas pendientes de respuesta; conserva incertidumbre y estados parciales definidos por el contrato.
+
 
 
 ## Transporte JSON PowerShell
 
-El contenido se escribe mediante un serializador UTF-8 y luego se transporta como bytes, sin interpolarlo en comandos. Usar scripts/write_json.ps1 -InputPath ARCHIVO -OutputPath DESTINO -WorkspaceRoot CARPETA_SELECCIONADA, o run.ps1 -JsonInputPath ARCHIVO -JsonOutputPath DESTINO -WorkspaceRoot CARPETA_SELECCIONADA. El workspace puede ser la carpeta de ejecución seleccionada por el usuario fuera del checkout. Si se omite, se usa el checkout. Requiere padre existente, rechaza enlaces, raíz del sistema, escape del workspace, JSON inválido y sobrescritura. No realiza una importación ni modifica el archivo origen.
+Consulta [esta interfaz opcional](advanced.md#transporte-json-powershell).
 
 ## Plan de lotes y recuperación
 
-`batch-plan --run RUN --batch-size 5 --max-characters 24000` devuelve batches, question_index y page_index sin modificar la ejecución. Cada lote conserva IDs, fuentes, páginas, assets y hashes de contenido/contexto/catálogo. El límite de caracteres serializados es un presupuesto de transporte, no una estimación de tokens. Una pregunta que excede el presupuesto permanece íntegra y sola; no cortar fórmulas, tablas o figuras.
-
-`ingest` devuelve accepted, rejected (con motivo) y unchanged por pregunta. Conservar las aceptadas; regenerar únicamente las rechazadas. Un reenvío idéntico conserva estados y razones vigentes. Máximo tres intentos por pregunta dentro del presupuesto disponible; después ampliar evidencia, dejar pending/unresolved explícito o registrar fail. No repetir lotes aprobados para aparentar reparación.
+Consulta [esta interfaz opcional](advanced.md#plan-de-lotes-y-recuperación).
 
 ## Lectura ciega 0.2.0
 
-La verificación comienza con input.json de stage source-reading y reading-template.json. Completar únicamente id/source_id/number/regions/stem/options/evidence y reviewer identificado. No añadir answer, explanation ni decisiones del productor. `verify commit-reading --run VERIFICATION --batch batch-01 --response lectura.json` congela lectura y hashes antes de generar el paquete de comparison y report-template.json. El informe posterior debe conservar reading_sha256 y el mismo reviewer; la independencia continúa siendo una declaración, no aislamiento autenticado.
+Consulta [esta interfaz opcional](advanced.md#lectura-ciega-020).
 
 ## Selección independiente de revisión
 
-`route --run RUN --subagents --review-all` selecciona todas las preguntas para revisión independiente CLI, incluso si tienen pauta. Para un subconjunto usar `--review-question ID` repetido. Ambos modos de selección son excluyentes y requieren capacidades/contexto independientes; el modo web no simula agentes. Sin selección explícita se conserva el subconjunto por resolver existente. Resolver y revisar son decisiones separadas; las claves de pauta permanecen vinculadas y los conflictos se documentan.
+Consulta [esta interfaz opcional](advanced.md#selección-independiente-de-revisión).
 
 ## Medidas de proveedor
 
-`record-usage --run RUN --response uso.json` acepta `{run_id, events:[{event_id, usage_source, input_tokens, output_tokens, cost, currency, duration_seconds}]}`. usage_source identifica el recibo o medición real. Cada evento corresponde a una llamada, sin agregados superpuestos. Mantener null para medidas no expuestas; currency es obligatorio cuando cost está medido. El mismo event_id con datos idénticos es idempotente; datos diferentes con el mismo ID se rechazan. No duplicar llamadas de agentes en una suma del coordinador. Los totales incompletos permanecen null, con subtotales conocidos separados.
+Consulta [esta interfaz opcional](advanced.md#medidas-de-proveedor).
 
 ## draft.json v1 del extractor previo
 
-Después de `prepare`, `map` y `route`, una ejecución puede incorporar una extracción v1 existente:
-
-~~~text
-python -B scripts/importer.py adapt-draft --run RUN --draft /ruta/draft.json
-~~~
-
-El adaptador exige un candidato mapeado todavía intacto y cubrir exactamente la selección congelada completa. Valida el draft y sus recursos, vincula por SHA-256 exacto y número de páginas de fuente, y por número original de pregunta. Comprueba toda la conversión antes de aplicar cambios: asociaciones ambiguas o estructuras sin conversión segura fallan atómicamente y explican el bloqueo. Conserva copia del draft, recursos y evidencia de procedencia en `.work`, fuera del paquete final. Los contextos compartidos representables se incorporan a cada pregunta que los referencia conservando su procedencia. Los gráficos conservan su `source_bbox` y origen superior izquierdo al asociarse con el recorte de fuente; no se invierte el eje vertical ni se inventa geometría.
-
-`complete` y `structural_fidelity.status=verified` son estados del extractor, no aprobación independiente. La conversión no los promueve a `reviewed` o `verified`. Respuestas, explicaciones y currículo no demostrados permanecen pendientes; el anfitrión debe completarlos mediante `ingest`, lectura registrada, cotejos y la auditoría que exija `route`. Conservar el draft interno no sustituye el `.paessed` 0.2.0 final.
+Consulta [esta interfaz opcional](advanced.md#draftjson-v1-del-extractor-previo).

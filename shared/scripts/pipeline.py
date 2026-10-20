@@ -123,7 +123,9 @@ def _ingest(run_dir, response_path, raw_response_bytes=None, explanation_provena
         except (ValueError,KeyError,TypeError) as exc:
             rejected.append({'question_id':proposed['id'],'reason':str(exc)})
     if rejected and not accepted and not unchanged:
-        raise ValueError('No questions accepted: '+ '; '.join(r['question_id']+': '+r['reason'] for r in rejected))
+        error = ValueError('No questions accepted: '+ '; '.join(r['question_id']+': '+r['reason'] for r in rejected))
+        error.rejected = rejected
+        raise error
     result={'accepted':accepted,'rejected':rejected,'unchanged':unchanged,'questions_updated':len(accepted),'archive':None}
     if not accepted: return result
     stamp=str(time.time_ns())

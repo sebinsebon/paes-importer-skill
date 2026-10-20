@@ -1,17 +1,9 @@
 # CLI sin solucionario completo
 
-Usa este flujo si falta pauta válida para alguna pregunta. Una pauta parcial válida se conserva y solo se resuelve el subconjunto pendiente. Consulta el [procedimiento común](../../references/workflow.md), las [interfaces](../../references/interfaces.md), el [contrato de contenido](../../shared/references/content-contract.md) y, únicamente si se programa revisión independiente, la [auditoría](../../references/audit.md). Resuelve las rutas relativas desde la carpeta de SKILL.md.
+Sigue la [operación común](../../references/workflow.md), las [interfaces](../../references/interfaces.md) y el [contrato de contenido](../../shared/references/content-contract.md). Consulta la [auditoría](../../references/audit.md) solo si seleccionas revisión independiente.
 
-1. Comprueba lectura visual, recortes, ejecución Python/Node, validación y ZIP. Solicita destino si no existe uno indicado. Ejecuta `prepare --host cli`, lee todas las páginas y crea el mapa completo con `map`.
-2. Si hay pauta parcial, documenta identidad, cobertura y entradas legibles en `key.json`. Rechaza la asociación ambigua o incompatible; solicita aclaración cuando sea necesaria y registra la incidencia. Ejecuta `route` con la pauta válida, si existe. Declara `--subagents` solo cuando puedas crear revisores con contexto nuevo y evidencia visual suficiente.
-3. Registra lectura con `record-input`. Produce preguntas en lotes de hasta cinco. Usa la pauta únicamente para las cubiertas; resuelve `solve_question_ids` desde la evidencia del ensayo. Las respuestas de pauta y explicaciones de IA llevan su procedencia real. No inventes certeza donde el material sea ilegible.
-4. Coteja las seis dimensiones de cada pregunta con la fuente usando `check-template` y `record-check`. Mantén estructura KaTeX, tablas, recortes, explicaciones completas y cobertura total; marca `unresolved` las dudas.
-5. Ejecuta `validate`. Si `independent_question_ids` está vacío, usa `pack` y describe la revisión como propia. Si contiene preguntas, sigue `baseline`, `verify prepare`, informes de agentes con contexto nuevo, `verify check`, decisiones explícitas y `verify consolidate` según auditoría. Por defecto se revisa independientemente el subconjunto sin pauta; `route --review-all` o `--review-question ID` puede seleccionar también preguntas con pauta cuando existen subagentes. No se simula independencia cuando no están disponibles.
-6. Ejecuta `inspect` y entrega .paessed y ZIP idéntico, cobertura, respuestas de pauta/modelo, tipo de revisión y pendientes. La revisión independiente tampoco garantiza corrección matemática.
-
-
-## Contrato curricular 0.2.0
-
-Toda nueva importación M1 incorpora questions[].curriculum = {eje, subeje, en_temario}. Clasificar automáticamente cada pregunta por su contenido usando los cuatro ejes y 16 subejes de shared/references/curriculum-m1.json; consultar shared/references/curriculum-contract.md para pertenencia, evidencia y pendientes. No copiar la taxonomía de TESLA ni inferir desde numeración. Cada lote añade curriculum_provenance[id] con reason y evidence [{source_id,page,observation}]. Clasificar también preguntas sin pauta o cuya resolución experimental se rechazó. Conservar la incertidumbre como dudoso; un par null requiere CURRICULUM_PENDING y entrega curricular parcial. Los lectores admiten finales históricos 0.1.0 sin inventar clasificación; el manifiesto del paquete sigue en 0.1.0.
-
-La salida nueva debe superar el contrato 0.2.0 en empaquetado directo o consolidación auditada. Este flujo documenta operación según capacidades observadas; las pruebas sintéticas no acreditan una corrida real en todo chat/modelo/CLI. Un draft v1 puede adaptarse mediante la operación común, pero no sustituye el cotejo visual ni la resolución/verificación requerida.
+- Prepara con `--host cli`. Conserva la pauta parcial correspondiente y resuelve únicamente `solve_question_ids`; registra la procedencia real de cada respuesta y explicación.
+- Declara `--subagents` solo si existen revisores con contexto nuevo y evidencia visual. La revisión independiente predeterminada cubre las preguntas sin pauta; las opciones de selección están en auditoría.
+- Transcribe, clasifica currículo y coteja todas las preguntas mediante `review` y `record-check`. Conserva dudas como `unresolved`.
+- Si `independent_question_ids` está vacío, usa `validate`, `pack` e `inspect`. De lo contrario, sigue `baseline` y `verify` según auditoría.
+- Entrega `.paessed` y ZIP idénticos, cobertura y pendientes explícitos. Puede existir una entrega parcial válida; ninguna revisión acredita certeza matemática automática.

@@ -46,7 +46,8 @@ def no_links(path):
 
 def configure_workspace(path):
     global WORKSPACE
-    WORKSPACE = no_links(path)
+    from runtime_environment import external_path
+    WORKSPACE = external_path(path)
     if WORKSPACE == Path(WORKSPACE.anchor):
         raise ValueError('A filesystem root cannot be an output workspace')
     return WORKSPACE
@@ -56,6 +57,8 @@ def inside(path):
     if WORKSPACE is None:
         raise ValueError('Configure the explicit output workspace first')
     path = no_links(path)
+    if path == ROOT or path.is_relative_to(ROOT):
+        raise ValueError('Runtime installation is read-only; select an external workspace')
     if not path.is_relative_to(WORKSPACE):
         raise ValueError(f'Destination leaves selected workspace: {path}')
     return path
@@ -165,7 +168,8 @@ def reserve_output(path, stage):
     folder.mkdir(parents=True, exist_ok=False)
     temporary = inside(path / '.work/tmp')
     temporary.mkdir(exist_ok=True)
-    os.environ.update(TEMP=str(temporary), TMP=str(temporary), PYTHONDONTWRITEBYTECODE='1')
+    from runtime_environment import process_environment
+    os.environ.update(process_environment(path/'.work', create=True))
     return folder
 
 

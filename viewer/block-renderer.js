@@ -3,7 +3,7 @@
 function renderBlocks(container,blocks,options={}) {
  const doc=container.ownerDocument; const fragment=doc.createDocumentFragment();
  function render(parent,list,depth){if(depth>16)throw new Error('Bloques demasiado anidados');
- for(const block of list||[]){const el=doc.createElement(block.type==='text'?'span':'div');el.className='paessed-block paessed-'+block.type;
+ for(const block of list||[]){const el=doc.createElement(block.type==='text'||(block.type==='math'&&!block.display)?'span':'div');el.className='paessed-block paessed-'+block.type;
  if(block.type==='text'){el.textContent=block.text;el.style.whiteSpace='pre-wrap';}
  else if(block.type==='math'){el.style.display=block.display?'block':'inline-block';try{if(!options.katex)throw new Error('KaTeX no disponible');options.katex.render(block.latex,el,{displayMode:block.display,throwOnError:true,trust:false,strict:'error',maxExpand:1000,maxSize:20,output:'htmlAndMathml'});}catch(error){el.setAttribute('role','alert');el.textContent='Fórmula pendiente de render: '+block.latex;el.classList.add('paessed-unresolved');if(options.onError)options.onError(error,block);}}
  else if(block.type==='image'){const url=options.assetUrls instanceof Map?options.assetUrls.get(block.asset_id):options.assetUrls?.[block.asset_id];if(url){const img=doc.createElement('img');img.src=url;img.alt=block.alt;img.style.maxWidth='100%';img.style.height='auto';el.append(img);}else{el.textContent='Recurso no disponible: '+block.asset_id;el.setAttribute('role','alert');}}

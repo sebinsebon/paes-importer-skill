@@ -1,25 +1,20 @@
 ---
 name: paes-importer
-description: Importa ensayos PAES Matemática M1 PDF, con solucionario opcional, a .paessed 0.2.0 y ZIP idéntico; selecciona un flujo para chat web o agente CLI según la cobertura de la pauta y las capacidades observadas.
+description: Importa ensayos PAES Matemática M1 PDF, con solucionario opcional, a .paessed 0.2.0 y ZIP idéntico en chat web o CLI, con transcripción estructurada y cotejo visual completo.
 license: MIT
 metadata:
-  requires: Comprobar lectura visual, bundle completo, Python 3.12+, Node.js 18+ y capacidad de entregar .paessed y ZIP.
+  requires: Lectura visual, bundle completo, Python 3.12+, Node.js 18+ y entrega de archivos.
 ---
 
 # Importador PAESSED M1
 
 ## Primero: confirmar el entorno
 
-Antes de abrir referencias, flujos o PDFs, comprueba si el usuario ya indicó **Chat Web** o **CLI / agente de terminal** en esta conversación. Si lo indicó, usa esa respuesta sin volver a preguntar. Si no lo indicó o es ambiguo, pregunta: **«¿Dónde estás usando la skill: Chat Web o CLI / agente de terminal?»** Ofrece esas dos opciones y espera su respuesta antes de continuar. Mientras esperas, lee únicamente este SKILL.md; no cargues otros archivos ni ejecutes preparación o pruebas de capacidades. No deduzcas el entorno solo porque existan Python o herramientas de terminal.
-
-PAESSED necesita una transcripción fiel de cada pregunta, con matemática, tablas, imágenes, alternativas, respuesta y explicación. Esta skill produce un .paessed oficial y un ZIP idéntico conforme al [contrato del paquete](shared/references/package-contract.md). El agente interpreta el PDF; los scripts incluidos preparan, validan y empaquetan. Esta versión cubre Matemática M1, el visor portable y el contrato admitido por paesseduiux. Su soporte técnico no acredita resultados reales de todos los hosts ni certificación Gold. **Regla de entrega:** en Chat Web genera el .paessed y el ZIP idéntico en el espacio temporal disponible y adjúntalos directamente a la conversación como archivos descargables. Nunca preguntes dónde guardar archivos ni solicites rutas/carpetas al usuario web. En CLI sí puedes solicitar Documentos, Descargas o una ruta personalizada. Esta regla prevalece sobre instrucciones generales de destino.
+Antes de abrir referencias, flujos o PDFs, comprueba si el usuario ya indicó **Chat Web** o **CLI / agente de terminal** en esta conversación. Si lo indicó, usa esa respuesta sin volver a preguntar. Si no lo indicó o es ambiguo, pregunta: **«¿Dónde estás usando la skill: Chat Web o CLI / agente de terminal?»** Ofrece esas dos opciones y espera su respuesta antes de continuar. Mientras esperas, lee únicamente este SKILL.md; no deduzcas el entorno por las herramientas disponibles.
 
 ## Elegir un solo flujo
 
-1. Localiza esta carpeta y el bundle completo. Identifica el ensayo M1, sus páginas y cualquier pauta separada o integrada. Si solo hay respuestas sin enunciados completos, solicita el ensayo. Ante varios ensayos, identifica la asociación antes de continuar.
-2. Comprueba con observaciones concretas las herramientas disponibles para leer páginas y visuales, recortar, ejecutar Python/Node, validar, crear y entregar .paessed y su ZIP idéntico. El nombre «chat web» o «CLI» no demuestra ni descarta capacidades. Si falta una capacidad indispensable, explica cuál y conserva el trabajo realizado; no sustituyas el formato PAESSED.
-3. Comprueba la correspondencia de la pauta con identidad, numeración, alternativas y evidencia visible. Haz un mapa de todas las preguntas para conocer su cobertura. Una pauta ambigua o incompatible no cuenta como válida; registra la discrepancia y pide la asociación correcta cuando sea necesaria. La pauta parcial cubre solo sus preguntas documentadas.
-4. Selecciona la fila correspondiente y lee **solo** su WORKFLOW.md. No cargues los otros tres flujos. Dentro del flujo, consulta únicamente las referencias comunes que indique.
+Localiza el bundle completo, el ensayo y su solucionario, si existe. Comprueba identidad, numeración y cobertura de la pauta mediante lectura real. Si solo hay respuestas, solicita el ensayo. Una pauta ambigua no cuenta como cobertura válida; una parcial conserva sus entradas asociadas.
 
 | Entorno de trabajo | Cobertura válida de la pauta | Leer |
 | --- | --- | --- |
@@ -28,11 +23,18 @@ PAESSED necesita una transcripción fiel de cada pregunta, con matemática, tabl
 | CLI | Ausente o parcial | [03 CLI sin solucionario completo](flows/03-cli-sin-solucionario/WORKFLOW.md) |
 | Chat web | Ausente o parcial | [04 Chat sin solucionario completo](flows/04-chat-sin-solucionario/WORKFLOW.md) |
 
-Una pauta válida y parcial conserva sus respuestas y explicaciones cubiertas; el flujo 03 o 04 trata únicamente las preguntas pendientes. Si la asociación es ambigua, no inventes cobertura para elegir un flujo rápido. Elige el anfitrión por el lugar donde se realiza el trabajo: un chat web con ejecución de código sigue el flujo web.
+Lee solo el flujo elegido y sus referencias necesarias. Un chat web con ejecución de código sigue siendo web.
 
-El [contrato de contenido](shared/references/content-contract.md) y el cotejo con el PDF rigen los cuatro flujos. Conserva las verificaciones de enunciados, alternativas, matemática, tablas, imágenes, respuestas y explicaciones. No promociones una autorrevisión o una pauta copiada a verified.
+## Resultado esperado
 
+Conserva enunciados, orden, alternativas, tablas, figuras y matemática del ensayo. Usa el solucionario correspondiente para respuestas y desarrollos: explicaciones como texto y matemática editables; imágenes para diagramas necesarios. La pauta no reduce el cotejo del ensayo.
 
-## Contrato curricular 0.2.0
+Transcribe íntegro el desarrollo existente, sin resumir, reformular ni resolverlo de nuevo. Matemática dentro de párrafos: `math` con `display:false`; fórmulas independientes: `display:true`. Conserva párrafos y saltos del original. Usa IA para resolver o explicar solo lo que falte; documenta conflictos con la fuente.
 
-Toda nueva importación M1 incorpora questions[].curriculum = {eje, subeje, en_temario}. Clasificar automáticamente cada pregunta por su contenido usando los cuatro ejes y 16 subejes de shared/references/curriculum-m1.json; consultar shared/references/curriculum-contract.md para pertenencia, evidencia y pendientes. No copiar la taxonomía de TESLA ni inferir desde numeración. Cada lote añade curriculum_provenance[id] con reason y evidence [{source_id,page,observation}]. Clasificar también preguntas sin pauta o cuya resolución experimental se rechazó. Conservar la incertidumbre como dudoso; un par null requiere CURRICULUM_PENDING y entrega curricular parcial. Los lectores admiten finales históricos 0.1.0 sin inventar clasificación; el manifiesto del paquete sigue en 0.1.0.
+**Gold significa fidelidad visual completa al ensayo y al solucionario disponible**, con asociación correcta, integridad y procedencia. Exige cotejos vigentes de todas las preguntas; una clave por sí sola no basta. No exige segunda resolución matemática ni estados `verified`.
+
+Compara visualmente **cada pregunta, alternativa y recorte** con su fuente antes de entregar. Primero inspecciona el HTML con tus herramientas; si no puedes, usa capturas observables. Si tampoco puedes obtenerlas e inspeccionarlas, informa la limitación y conserva revisión pendiente. Las dependencias de captura son opcionales. Con solucionario completo, repara los pendientes dentro de la ejecución; si falta evidencia, conserva avances e informa que está incompleta. No declares `verified` mediante autorrevisión.
+
+Emite contenido **0.2.0**, con currículo M1 y procedencia, dentro de `.paessed` y ZIP idénticos. En **Chat Web adjunta ambos directamente**, sin preguntar carpeta. En **CLI** usa el destino indicado o pregunta Documentos/Descargas/ruta personalizada. Esquemas y validadores se resuelven dentro del bundle.
+
+Continúa los lotes pendientes mientras la sesión lo permita, guardando cada lote con `ingest`. Usa `resume` y `batch-plan --pending-only` al retomar; conserva lo aceptado. Si la sesión se interrumpe, entrega el estado y la carpeta recuperable. La skill no puede prolongar una sesión ni ejecutar un agente fuera de ella.
