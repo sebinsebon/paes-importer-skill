@@ -33,7 +33,7 @@ Los entornos virtuales se recrean al trasladarlos entre equipos. No se incluyen 
 
 ## Inspección visual
 
-Primero utiliza las herramientas del agente para inspeccionar el HTML producido por `review`. Si puede observarlo, no necesita Playwright. Si no puede abrir HTML, puede utilizar la alternativa de capturas descrita en [operación común](references/workflow.md#comparar-antes-de-entregar).
+Primero utiliza las herramientas del agente para inspeccionar el HTML renderizado producido por `review`. Conserva una captura atribuida del navegador como artefacto visual; no requiere Playwright si el anfitrión ya proporciona capturas. Leer el HTML como texto no acredita observación. La alternativa de captura automática se describe en [las interfaces](references/interfaces.md#review).
 
 `python -B scripts/setup.py --with-visual` instala únicamente las dependencias Python opcionales de `requirements-visual.txt`. No descarga navegadores. La captura puede usar un navegador existente mediante `--executable-path`; cualquier navegador instalado aparte y su caché permanecen externos. Chromium y Playwright instalado no forman parte del ZIP.
 
@@ -41,7 +41,7 @@ Si tampoco puede obtener e inspeccionar capturas, el agente informa la limitaci�
 
 ## Salida y contrato
 
-La versión **1.4.1-portable** preserva matemática inline y display, reutiliza desarrollos íntegros del solucionario y facilita continuar únicamente pendientes. Gold requiere cotejo visual completo y asociación con las fuentes; no exige resolver de nuevo ni promover respuestas a verified. Los estados del contrato 0.2.0 se conservan. Consulta la [operación común](references/workflow.md) para recuperación, captura en memoria y extracción de texto nativo.
+El candidato local **1.5.0-portable** incorpora contexto nativo por lote, recursos selectivos, recuperación portable y revisión incremental ligada a artefactos visuales. Gold requiere cotejo visual completo y adjudicación de diagnósticos vigentes; no exige resolver de nuevo ni promover respuestas a verified. Los estados del contrato 0.2.0 se conservan. Consulta [las interfaces](references/interfaces.md#plan-de-lotes-y-recuperación) para contexto, recuperación, captura y consulta regional. Este candidato no acredita una mejora de tiempo en importaciones reales sin la campaña documental pareada correspondiente.
 
 ~~~text
 EnsayosPaessedOutput/

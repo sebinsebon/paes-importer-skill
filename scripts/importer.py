@@ -137,6 +137,9 @@ def prepare(args):
            'config': config, 'config_hash': json_digest(config), 'exam_id': exam_id, 'title': title,
            'release_sha256': digest(ROOT / 'release.json')}
     write(folder / 'run.json', run)
+    args._prepared_folder = folder
+    if getattr(args,'_operation_id',None):
+        event(folder,'command_prepare',operation_id=args._operation_id,phase='start',category='importer',started_at=args._started_at)
     try:
         paths = {'exam': str(exam)}
         if solution:
@@ -144,7 +147,12 @@ def prepare(args):
         sources = [source_record(sid, p, 'exam' if sid == 'exam' else 'solution') for sid, p in paths.items()]
         write(folder / 'sources.local.json', paths)
         write(folder / 'sources.json', sources)
-        prepare_catalog(sources, paths, folder, scale=args.scale)
+        prepare_catalog(sources, paths, folder, scale=args.scale,materialize_images=getattr(args,'eager_assets',False))
+        from capture_review import startup_probe
+        probe = startup_probe(folder)
+        write(folder/'capabilities-probe.json',probe)
+        event(folder,'capability_probe',category='importer',outcome=probe['status'],
+              error_code='CAPTURE_UNAVAILABLE' if probe['status']=='unavailable' else None)
         write(folder / 'direct-input.template.json', {
             'mode': 'unavailable', 'input_kind': 'pdf', 'reader': '',
             'visual_content_understood': False, 'capability_observation': '', 'limitations': [],
@@ -163,7 +171,8 @@ def verify_pre_mapping(folder):
     if digest(ROOT / 'release.json') != run['release_sha256'] or json_digest(run['config']) != run['config_hash']:
         raise ValueError('Frozen implementation/configuration changed')
     engine.verify_release()
-    paths = read(folder / 'sources.local.json')
+    from checkpoint_export import resolve_sources
+    paths = resolve_sources(folder)
     for source in read(folder / 'sources.json'):
         if digest(paths[source['id']]) != source['sha256']:
             raise ValueError('Source changed before question mapping')
@@ -322,7 +331,7 @@ def repair_mapping(folder, response_file):
         if qid not in mapped or qid in changed:
             raise ValueError('Unknown or duplicate mapping repair question')
         old = mapped[qid]
-        editable = {'content_inventory','source_fields','regions','field_regions','mapping_pending'}
+        editable = {'content_inventory','source_fields','regions','field_regions','mapping_pending','shared_regions'}
         if {k:v for k,v in old.items() if k not in editable} != {k:v for k,v in replacement.items() if k not in editable}:
             raise ValueError('Mapping repair cannot change question identity or option labels')
         validate_source_fields(replacement, catalog)
@@ -420,26 +429,13 @@ def progress(folder):
             'continuation':'The host agent continues while its session permits; resume does not execute AI.'}
 
 
-def source_text(folder, source_id, pages):
+def source_text(folder, source_id, pages, regions=None, layout='text'):
     """Native text for selected physical pages; never infer formulas or answers."""
     source = next((s for s in read(folder/'sources.json') if s['id']==source_id), None)
     if source is None or not pages or any(p < 1 or p > source['page_count'] for p in pages):
         raise ValueError('Select existing source and physical pages')
-    path = read(folder/'sources.local.json')[source_id]
-    if digest(path) != source['sha256']: raise ValueError('Source PDF changed')
-    import pypdfium2 as pdfium
-    result = []
-    with pdfium.PdfDocument(path) as pdf:
-        for number in sorted(set(pages)):
-            page = pdf[number-1]
-            try:
-                text = page.get_textpage()
-                try: value = text.get_text_range()
-                finally: text.close()
-            finally: page.close()
-            result.append({'page':number,'text':value})
-    return {'source_id':source_id,'sha256':source['sha256'],'pages':result,
-            'limitation':'Native extraction only: visually verify association, reading order, tables, accents and mathematical layout; never ingest this as verified content.'}
+    from source_index import ensure_source_index, query_source_index
+    return query_source_index(ensure_source_index(folder), source_id, pages=pages, regions=regions,layout=layout)
 
 
 @candidate_operation
@@ -494,11 +490,12 @@ def ingest_response(folder, response_file):
     prepared = []
     rejected = []
     mapping = {q['id']: q for q in read(folder/'selection.json')['expected_questions']}
+    catalog = read(folder/'catalog.json')
     for raw_question in questions:
         q = copy.deepcopy(raw_question)
         try:
             inventory = observed_inventory(mapping[q['id']], key.get(q['id']))
-            validate_inventory_record(inventory, read(folder/'catalog.json'))
+            validate_inventory_record(inventory, catalog)
             validate_inventory(q, inventory, candidate)
             if q['id'] in key:
                 label = key[q['id']]['label']
@@ -525,6 +522,14 @@ def ingest_response(folder, response_file):
                     pages = provenance.setdefault('pages',key[q['id']].get('pages',[key[q['id']]['page']]))
                     if not isinstance(pages,list) or not pages or set(pages) != set(key[q['id']].get('pages',[key[q['id']]['page']])):
                         raise ValueError('Explanation pages must preserve frozen solution coverage')
+                    if 'regions' in provenance:
+                        regions = provenance['regions']
+                        if not isinstance(regions,list) or not regions or {r.get('page') for r in regions} != set(pages):
+                            raise ValueError('Explanation regions must cover every frozen source page')
+                        geometry = {(p['source_id'],p['page']):p for p in catalog['pages']}
+                        for region in regions:
+                            page = geometry[(provenance['source_id'],region['page'])]
+                            __import__('lab').bbox(region.get('bbox'),page['width'],page['height'])
             prepared.append(q)
         except (ValueError,KeyError,TypeError) as exc:
             rejected.append({'question_id':q['id'],'reason':str(exc)})
@@ -630,7 +635,8 @@ def archive(folder, kind, record):
 def check_template(folder, question_ids=None):
     candidate = read(folder / 'candidate.json')
     previews = read(folder/'render-reviews.json') if (folder/'render-reviews.json').exists() else {}
-    return {'run_id': candidate['run']['id'], 'independent': False,
+    diagnostics = review_diagnostics(folder, candidate)
+    result = {'run_id': candidate['run']['id'], 'independent': False,
             'session_id': read(folder / 'run.json')['session_id'],
             'protocol': 'source-cotejo-0.2',
             'questions': [{'id': q['id'], 'content_sha256': engine.content_hash(q, candidate, folder),
@@ -639,6 +645,54 @@ def check_template(folder, question_ids=None):
                            'visual_observation': {'mode':'unavailable','tool':'','observation':''},
                            'checks': {k: {'status': 'unresolved', 'reason': '', 'field_paths': field_paths(q)[k], 'evidence': []} for k in CHECKS}}
                           for q in candidate['questions'] if question_ids is None or q['id'] in question_ids]}
+    from evidence import citation_requirements
+    mapped = {q['id']:q for q in read(folder/'selection.json')['expected_questions']}
+    keys = {e['question_id']:e for e in read(folder/'answer-key-map.json')['entries']} if (folder/'answer-key-map.json').exists() else {}
+    provenance = read(folder/'explanation-provenance.json') if (folder/'explanation-provenance.json').exists() else {}
+    questions = {q['id']:q for q in candidate['questions']}
+    for row in result['questions']:
+        row['source_diagnostics'] = diagnostics[row['id']]
+        row['diagnostic_review'] = [{'diagnostic_sha256':d['diagnostic_sha256'],
+            'status':'unresolved','reason':'','evidence':[]} for d in diagnostics[row['id']]]
+        for dimension, check in row['checks'].items():
+            refs = {}
+            for field in check['field_paths']:
+                sid,regions = citation_requirements(questions[row['id']],dimension,field,mapped[row['id']],keys.get(row['id']),provenance.get(row['id']))
+                for region in regions:
+                    for resource in candidate['evidence']:
+                        if resource['source_id'] == sid and resource['page'] == region['page']:
+                            item = refs.setdefault(resource['id'], {'id':resource['id'], 'sha256':resource['sha256'],
+                                'observation':'', 'fields':[]})
+                            if field not in item['fields']: item['fields'].append(field)
+            check['evidence'] = list(refs.values())
+    return result
+
+
+def review_diagnostics(folder, candidate):
+    """Native signals require explicit localized adjudication, never auto-fidelity."""
+    from content_inventory import source_diagnostics
+    from lab import question_blocks
+    catalog = read(folder/'catalog.json')
+    from source_index import ensure_source_index
+    index = ensure_source_index(folder,catalog)
+    mapping = {q['id']:q for q in read(folder/'selection.json')['expected_questions']}
+    keys = {e['question_id']:e for e in read(folder/'answer-key-map.json')['entries']} if (folder/'answer-key-map.json').exists() else {}
+    provenance = read(folder/'explanation-provenance.json') if (folder/'explanation-provenance.json').exists() else {}
+    result = {}
+    for question in candidate['questions']:
+        issues = source_diagnostics(mapping[question['id']],catalog,index,question,provenance.get(question['id']))
+        key = keys.get(question['id'])
+        if key and key.get('has_explanation'):
+            regions = provenance.get(question['id'],{}).get('regions') or [r for item in key.get('content_inventory',[]) for r in item.get('regions',[])]
+            if not regions:
+                regions = [{'page':p['page'],'bbox':[0,0,p['width'],p['height']]} for p in catalog['pages']
+                    if p['source_id']==key['source_id'] and p['page'] in key.get('pages',[key['page']])]
+            issues += source_diagnostics({'source_id':key['source_id'],'content_inventory':key.get('content_inventory',[]),
+                'source_fields':{'explanation':regions}},catalog,index)
+        used = {b['asset_id'] for b in question_blocks(question) if b['type']=='image'}
+        issues += [w for w in catalog.get('warnings',[]) if w.get('asset_id') in used]
+        result[question['id']] = [{**issue,'diagnostic_sha256':json_digest(issue)} for issue in issues]
+    return result
 
 
 def check_record(folder, record, candidate, review_cache=None):
@@ -658,6 +712,10 @@ def check_record(folder, record, candidate, review_cache=None):
     if candidate['schema_version'] == '0.2.0' and record.get('protocol') != 'source-cotejo-0.2':
         raise ValueError('Source cotejo 0.2 protocol required')
     review_cache = {} if review_cache is None else review_cache
+    diagnostic_key = ('source_diagnostics', digest(folder/'candidate.json'), digest(folder/'catalog.json'),
+                      digest(folder/'selection.json'), digest(folder/'explanation-provenance.json') if (folder/'explanation-provenance.json').exists() else None)
+    if diagnostic_key not in review_cache:
+        review_cache[diagnostic_key] = review_diagnostics(folder,candidate)
     for row in rows:
         q = by_id.get(row['id'])
         if (not q or row.get('content_sha256') != engine.content_hash(q, candidate, folder)
@@ -670,6 +728,41 @@ def check_record(folder, record, candidate, review_cache=None):
                 raise ValueError('Rendered result unavailable: keep visual checks unresolved')
         if set(row.get('checks', {})) != set(CHECKS):
             raise ValueError('Self-check needs all six dimensions')
+        diagnostics = review_cache[diagnostic_key][q['id']]
+        resolutions = row.get('diagnostic_review',[])
+        if not isinstance(resolutions,list) or any(not isinstance(r,dict) for r in resolutions) or len({r.get('diagnostic_sha256') for r in resolutions}) != len(resolutions):
+            raise ValueError('Diagnostic reviews must be unique records')
+        resolved = {r.get('diagnostic_sha256'):r for r in resolutions}
+        if any(check.get('status')=='pass' for check in row.get('checks',{}).values()):
+            for issue in diagnostics:
+                resolution = resolved.get(issue['diagnostic_sha256'],{})
+                if resolution.get('status') not in ('addressed','dismissed') or not isinstance(resolution.get('reason'),str) or not resolution['reason'].strip() or not isinstance(resolution.get('evidence'),list) or not resolution['evidence']:
+                    raise ValueError(q['id']+': SOURCE_DIAGNOSTIC_PENDING '+issue['code'])
+                required_regions = list(issue.get('regions',[]))
+                if issue.get('bbox') and issue.get('page'):
+                    required_regions.append({'page':issue['page'],'bbox':issue['bbox']})
+                required_pages = {r['page'] for r in required_regions} | set(issue.get('pages',[]))
+                if issue.get('page'): required_pages.add(issue['page'])
+                cited_regions = []
+                for cite in resolution['evidence']:
+                    if not isinstance(cite,dict): raise ValueError('Invalid diagnostic evidence')
+                    resource = resources.get(cite.get('id'))
+                    if not resource or cite.get('sha256') != resource['sha256'] or not isinstance(cite.get('observation'),str) or not cite['observation'].strip():
+                        raise ValueError('Diagnostic adjudication needs current source artifact and observation')
+                    if issue.get('source_id') and resource['source_id'] != issue['source_id']:
+                        raise ValueError('Diagnostic adjudication source mismatch')
+                    if required_pages and resource['page'] not in required_pages:
+                        raise ValueError('Diagnostic adjudication page mismatch')
+                    artifact_key = ('diagnostic_artifact',resource['id'],resource['sha256'])
+                    if artifact_key not in review_cache:
+                        if digest(artifact_path(folder,resource['path'])) != resource['sha256']:
+                            raise ValueError('Altered diagnostic source artifact')
+                        review_cache[artifact_key] = True
+                    cited_regions.append({'page':resource['page'],'bbox':resource['bbox']})
+                if required_pages - {r['page'] for r in cited_regions}:
+                    raise ValueError('Diagnostic adjudication must cover every affected source page')
+                if required_regions and not __import__('evidence').cover_regions(required_regions,cited_regions):
+                    raise ValueError('Diagnostic adjudication must cover affected source regions')
         for dimension, check in row['checks'].items():
             if check.get('status') not in ('pass', 'fail', 'unresolved') or not check.get('reason') or not check.get('evidence'):
                 raise ValueError('Self-check needs pass/unresolved, reason and visual evidence')
@@ -881,6 +974,40 @@ def verify_command(args):
     return finish_publication(parent, folder.parent.parent, result, decision)
 
 
+def operation_questions(folder,args,result):
+    """Operation scope, including non-ingestion commands and source asset changes."""
+    known = {q['id'] for q in read(folder/'candidate.json')['questions']} if (folder/'candidate.json').exists() else set()
+    found = set()
+    def walk(value):
+        if isinstance(value,dict):
+            for key,item in value.items():
+                if key in ('id','question_id') and isinstance(item,str) and item in known: found.add(item)
+                elif key in ('accepted','unchanged','repaired_question_ids','mapping_repaired','question_ids','accepted_question_ids','reused') and isinstance(item,list):
+                    found.update(v for v in item if isinstance(v,str) and v in known)
+                walk(item)
+        elif isinstance(value,list):
+            for item in value: walk(item)
+    walk(result)
+    for name in ('response','selection','requests'):
+        path = getattr(args,name,None)
+        if path:
+            try: walk(read(path))
+            except (OSError,ValueError): pass
+    requested = getattr(args,'question',None)
+    if requested: found.update([requested] if isinstance(requested,str) else requested)
+    if args.command in ('review','capture-review') and not requested and not getattr(args,'pending_only',False):
+        found.update(known)
+    if args.command in ('route','record-input','validate','pack','baseline','export-checkpoint'):
+        found.update(known)
+    if args.command == 'verify' and (folder/'route.json').exists():
+        found.update(read(folder/'route.json').get('independent_question_ids',[]))
+    if args.command in ('crops','materialize-assets'):
+        assets = {r['id'] for r in result.get('assets',[])}
+        for q in read(folder/'candidate.json')['questions']:
+            if any(b.get('asset_id') in assets for b in __import__('lab').question_blocks(q)): found.add(q['id'])
+    return sorted(found & known)
+
+
 def main():
     if hasattr(sys.stdout, 'reconfigure'): sys.stdout.reconfigure(encoding='utf-8')
     if hasattr(sys.stderr, 'reconfigure'): sys.stderr.reconfigure(encoding='utf-8')
@@ -895,20 +1022,30 @@ def main():
     p.add_argument('--model', default='unknown'); p.add_argument('--effort', default='unknown')
     p.add_argument('--session-id', required=True); p.add_argument('--capabilities', required=True)
     p.add_argument('--scale', type=float, default=1.5)
+    p.add_argument('--eager-assets',action='store_true',help='Materialize every native image; default keeps lazy geometry candidates')
     p = sub.add_parser('inspect'); p.add_argument('--package', required=True)
     p = sub.add_parser('adapt-draft'); p.add_argument('--run', required=True); p.add_argument('--draft', required=True)
+    p = sub.add_parser('adopt-checkpoint')
+    p.add_argument('--checkpoint', required=True); p.add_argument('--legacy-bundle', required=True)
+    p.add_argument('--output-run', required=True)
     p = sub.add_parser('verify')
     p.add_argument('action', choices=['prepare', 'check', 'decisions', 'consolidate', 'add-evidence', 'commit-reading'])
     p.add_argument('--run', required=True); p.add_argument('--session-id', default='unknown')
     p.add_argument('--decisions'); p.add_argument('--batch'); p.add_argument('--requests'); p.add_argument('--response')
-    for name in ('map', 'repair-map', 'source-text', 'route', 'ingest', 'record-input', 'record-usage', 'batch-plan', 'review', 'capture-review', 'check-template', 'record-check', 'crops',
+    for name in ('map', 'repair-map', 'repair-provenance', 'export-checkpoint', 'source-text', 'route', 'ingest', 'record-input', 'record-usage', 'batch-plan', 'review', 'capture-review', 'record-browser-capture', 'check-template', 'record-check', 'crops', 'materialize-assets',
                  'validate', 'pack', 'baseline', 'resume', 'fail'):
         p = sub.add_parser(name); p.add_argument('--run', required=True)
         if name == 'map': p.add_argument('--selection', required=True)
         if name == 'source-text':
             p.add_argument('--source-id', required=True)
             p.add_argument('--page', type=int, action='append', required=True)
-        if name in ('ingest', 'repair-map', 'record-input', 'record-check', 'record-usage'): p.add_argument('--response', required=True)
+            p.add_argument('--regions', help='JSON list of page/bbox regions in PDF points')
+            p.add_argument('--layout',choices=['text','compact','full'],default='text')
+        if name in ('ingest', 'repair-map', 'repair-provenance', 'record-input', 'record-check', 'record-usage'): p.add_argument('--response', required=True)
+        if name == 'export-checkpoint': p.add_argument('--output', required=True)
+        if name == 'record-browser-capture':
+            p.add_argument('--question',required=True); p.add_argument('--image',required=True)
+            p.add_argument('--tool',required=True); p.add_argument('--observation',required=True)
         if name == 'route':
             p.add_argument('--answer-key'); p.add_argument('--subagents', action='store_true')
             p.add_argument('--experimental', choices=['yes', 'no'])
@@ -916,26 +1053,65 @@ def main():
             review.add_argument('--review-question', action='append', default=[])
             review.add_argument('--review-all', action='store_true')
         if name == 'crops': p.add_argument('--requests', required=True)
+        if name == 'materialize-assets': p.add_argument('--asset',required=True,action='append')
         if name == 'capture-review':
             p.add_argument('--executable-path')
             p.add_argument('--transport', choices=['auto','file','memory'], default='auto')
+            p.add_argument('--resume-receipt', help='Path to an interrupted capture receipt')
+        if name in ('review','capture-review'):
+            p.add_argument('--question', action='append')
+            p.add_argument('--pending-only', action='store_true')
         if name == 'check-template': p.add_argument('--question', action='append')
         if name == 'batch-plan':
             p.add_argument('--batch-size',type=int,default=5); p.add_argument('--max-characters',type=int,default=24000)
             p.add_argument('--pending-only', action='store_true')
+            p.add_argument('--context', action='store_true', help='Include native source layout and complete response templates')
         if name == 'fail': p.add_argument('--reason', required=True)
     args = parser.parse_args()
     stage_started = time.perf_counter()
+    started_at = now()
+    operation_id = uuid.uuid4().hex
+    args._operation_id = operation_id
+    args._started_at = started_at
     folder = None
     try:
         if args.command == 'prepare': result = prepare(args)
         elif args.command == 'inspect': result = inspect_package(args.package)
-        elif args.command == 'verify': result = verify_command(args)
+        elif args.command == 'adopt-checkpoint':
+            from adopt_checkpoint import adopt
+            result = adopt(args.checkpoint,args.legacy_bundle,args.output_run,ROOT/'release.json')
+            folder = base_folder(result['output_run'])
+        elif args.command == 'verify':
+            if args.action == 'prepare':
+                folder = base_folder(args.run)
+            else:
+                verification = Path(args.run).absolute()
+                if (verification/'.work/verification/run.json').is_file(): verification = verification/'.work/verification'
+                folder = base_folder(verification.parent/'base')
+            event(folder,'command_verify',operation_id=operation_id,phase='start',category='importer',
+                  started_at=started_at,action=args.action)
+            result = verify_command(args)
         else:
             folder = base_folder(args.run)
+            event(folder, 'command_'+args.command, operation_id=operation_id, phase='start',
+                  category='importer', started_at=started_at)
             if args.command == 'map': result = map_questions(folder, args.selection)
             elif args.command == 'repair-map': result = repair_mapping(folder, args.response)
-            elif args.command == 'source-text': result = source_text(folder,args.source_id,args.page)
+            elif args.command == 'repair-provenance':
+                from provenance_repair import repair
+                result = repair(folder,read(args.response),ensure_editable=ensure_editable,frozen_route=frozen_route,
+                    validate_key=validate_key,observed_inventory=observed_inventory,validate_inventory_record=validate_inventory_record)
+            elif args.command == 'export-checkpoint':
+                from checkpoint_export import export_checkpoint
+                result = export_checkpoint(folder,args.output)
+            elif args.command == 'record-browser-capture':
+                ensure_editable(folder); frozen_route(folder)
+                references = read(folder/'render-reviews.json')
+                if args.question not in references: raise ValueError('Generate review for this question first')
+                from capture_review import record_browser_capture
+                result = {'capture_receipt':record_browser_capture(folder,references[args.question],args.question,
+                    args.image,tool=args.tool,observation=args.observation),'review_status':'pending'}
+            elif args.command == 'source-text': result = source_text(folder,args.source_id,args.page,read(args.regions) if args.regions else None,args.layout)
             elif args.command == 'route':
                 review_ids = [q['id'] for q in read(folder/'candidate.json')['questions']] if args.review_all else args.review_question or None
                 result = route(folder, args.answer_key, args.subagents, args.experimental, review_ids)
@@ -946,10 +1122,18 @@ def main():
             elif args.command == 'batch-plan':
                 frozen_route(folder)
                 from batch_plan import plan_batches
+                from source_index import ensure_source_index
                 remaining = progress(folder) if args.pending_only else None
+                failures = {}
+                for path in sorted((folder/'reports/ingest').glob('*.json')):
+                    attempt = read(path)
+                    for row in attempt.get('rejected',[]): failures[row['question_id']] = failures.get(row['question_id'],0)+1
+                    for qid in attempt.get('accepted',[])+attempt.get('unchanged',[]): failures.pop(qid,None)
                 result = plan_batches(read(folder/'candidate.json'),args.batch_size,args.max_characters,
                                       selection=read(folder/'selection.json'), route=read(folder/'route.json'),
-                                      question_ids=remaining['pending_question_ids']+remaining['pending_solution_ids'] if remaining else None)
+                                      question_ids=remaining['pending_question_ids']+remaining['pending_solution_ids'] if remaining else None,
+                                      source_index=ensure_source_index(folder),include_context=args.context,
+                                      asset_candidates=read(folder/'catalog.json').get('asset_candidates',[]),failure_counts=failures)
             elif args.command == 'check-template':
                 if args.question and not set(args.question).issubset(q['id'] for q in read(folder/'candidate.json')['questions']):
                     raise ValueError('Unknown check-template question')
@@ -960,12 +1144,26 @@ def main():
                 references = read(folder/'render-reviews.json')
                 if not references: raise ValueError('Generate review before capture-review')
                 from capture_review import capture_review
-                result = capture_review(folder, next(iter(references.values())), executable_path=args.executable_path, transport=args.transport)
+                selected = args.question
+                if args.pending_only:
+                    pending = set(progress(folder)['pending_review_ids'])
+                    selected = [qid for qid in (selected or references) if qid in pending]
+                groups = {}
+                for qid in selected or ([] if selected == [] else references):
+                    if qid not in references: raise ValueError('Generate review for '+qid+' before capture-review')
+                    key = json_digest(references[qid])
+                    groups.setdefault(key,{'reference':references[qid],'ids':[]})['ids'].append(qid)
+                results = [capture_review(folder,g['reference'],executable_path=args.executable_path,transport=args.transport,
+                    question_ids=g['ids'],pending=args.pending_only,resume_receipt=read(args.resume_receipt) if args.resume_receipt else None)
+                    for g in groups.values()]
+                statuses = {r.get('status') for r in results}
+                combined_status = 'unavailable' if statuses=={'unavailable'} else 'partial' if statuses & {'partial','unavailable'} else 'completed'
+                result = results[0] if len(results)==1 else {'captures':results,'status':combined_status}
             elif args.command == 'review':
                 with __import__('checkpoints').state_lock(folder):
                     ensure_editable(folder)
                     frozen_route(folder)
-                    result = visual_review.create_review(folder)
+                    result = visual_review.create_review(folder,question_ids=args.question,pending=args.pending_only)
             elif args.command == 'record-check': result = record_check(folder, args.response)
             elif args.command == 'crops':
                 ensure_editable(folder)
@@ -973,6 +1171,11 @@ def main():
                 additions = apply_crops(folder, read(args.requests)); engine.sync_assets(folder)
                 ids = {a['id'] for a in additions}
                 result = {'assets':additions, 'warnings':[w for w in read(folder/'catalog.json').get('warnings',[]) if w.get('asset_id') in ids]}
+            elif args.command == 'materialize-assets':
+                ensure_editable(folder); frozen_route(folder)
+                from pdf_assets import materialize_assets
+                result = {'assets':materialize_assets(folder,args.asset)}
+                engine.sync_assets(folder)
             elif args.command == 'validate': result = validate_for_pack(folder)[1]
             elif args.command == 'pack': result = publish_base(folder)
             elif args.command == 'baseline': result = baseline(folder)
@@ -989,12 +1192,24 @@ def main():
                     if run['status'] == 'awaiting_ai': result.update(progress(folder))
         if args.command == 'prepare': folder = Path(result['run'])
         if folder is not None:
-            event(folder,'command_'+args.command,duration_seconds=time.perf_counter()-stage_started,outcome='completed')
+            semantic = result['status'] if isinstance(result,dict) and result.get('status') in ('unavailable','partial','needs_consent') else 'completed'
+            if isinstance(result,dict) and result.get('rejected'):
+                semantic = 'partial' if result.get('accepted') or result.get('unchanged') else 'rejected'
+            affected = operation_questions(folder,args,result)
+            event(folder,'command_'+args.command,duration_seconds=time.perf_counter()-stage_started,
+                  operation_id=operation_id, phase='end', category='importer', started_at=started_at,
+                  finished_at=now(), outcome=semantic, question_ids=affected,
+                  error_code='CAPTURE_UNAVAILABLE' if semantic=='unavailable' else 'CAPTURE_PARTIAL' if semantic=='partial' and args.command=='capture-review' else None)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
     except (ValueError, OSError, KeyError, TypeError, json.JSONDecodeError, RuntimeError) as exc:
+        folder = folder or getattr(args,'_prepared_folder',None)
         if folder is not None and (folder/'run.json').exists():
-            event(folder,'command_'+args.command,duration_seconds=time.perf_counter()-stage_started,outcome='failed')
+            code = re.search(r'\b[A-Z][A-Z_]{3,}\b', str(exc))
+            event(folder,'command_'+args.command,duration_seconds=time.perf_counter()-stage_started,
+                  operation_id=operation_id, phase='end', category='importer', started_at=started_at,
+                  finished_at=now(), outcome='failed', error_code=code.group() if code else 'IO_ERROR' if isinstance(exc,OSError) else 'VALIDATION_ERROR',
+                  question_ids=sorted(set(operation_questions(folder,args,{})+[r['question_id'] for r in getattr(exc,'rejected',[])])))
         print(str(exc), file=sys.stderr)
         return 2
 

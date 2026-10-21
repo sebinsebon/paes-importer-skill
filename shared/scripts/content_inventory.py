@@ -1,6 +1,8 @@
 """Source-observed requirements, kept outside model-editable final.json."""
 import copy
 import re
+import unicodedata
+from difflib import SequenceMatcher
 from lab import bbox, blocks_in
 from evidence import contains, cover_regions, rectangle_covered, overlaps
 
@@ -213,3 +215,126 @@ def bare_variable(text, symbol):
         return True
     return bool(re.search(token + r'\s*[=+*/^<>≤≥−]', text) or
                 re.search(r'[=+*/^<>≤≥−]\s*' + token, text))
+
+
+def math_text_candidates(text):
+    """Localized review candidates; Spanish conjunctions and units stay prose.
+
+    These are signals of omitted editable math, not a transcription or a solver.
+    A lone variable-like letter without mathematical context is ambiguous.
+    """
+    patterns=[r'(?<!\w)[A-Za-z0-9]+\s*[=+*/^<>≤≥≠√]\s*[-−]?[A-Za-z0-9]+',
+              r'(?i)\b(?:variable|incógnita|incognita|para todo|valor de)\s+[MNmnxy]\b',
+              r'(?i)\b[MNmnxy]\s+(?:distinto|diferente|igual|mayor|menor)\b',
+              r'(?<!\w)[A-Za-z0-9]+[²³⁴⁵⁶⁷⁸⁹₀₁₂₃₄₅₆₇₈₉]+(?!\w)',
+              r'√\s*[A-Za-z0-9]+', r'(?<!\w)[A-Za-z]\s*[_^]\s*\{?\d+\}?']
+    found=[]; seen=set()
+    for pattern in patterns:
+        for match in re.finditer(pattern,text):
+            span=match.span()
+            if span in seen: continue
+            seen.add(span)
+            found.append({'text':match.group(),'start':span[0],'end':span[1],
+                          'code':'MATH_IN_PROSE_CANDIDATE','status':'pending'})
+    for match in re.finditer(r'(?<!\w)[MNmnx](?!\w)',text):
+        # A measurement/currency suffix is not evidence of a variable. Spanish
+        # y/e/a/o/u remain excluded unless an explicit math context above fits.
+        before=text[:match.start()]
+        if re.search(r'(?:\d[\d.,]*|[$€])\s*$',before): continue
+        if any(start<=match.start() and end>=match.end() for start,end in seen): continue
+        found.append({'text':match.group(),'start':match.start(),'end':match.end(),
+                      'code':'MATH_IN_PROSE_CANDIDATE','status':'pending'})
+    return sorted(found,key=lambda item:item['start'])
+
+
+def explanation_coverage(source_text, rendered_text):
+    """Compare wording, keeping all differences subject to source observation."""
+    def tokens(text):
+        return re.findall(r'\w+|[=+*/^<>≤≥≠−-]',unicodedata.normalize('NFKC',text).casefold())
+    source=tokens(source_text); result=tokens(rendered_text)
+    if len(source)<5: return []
+    matcher=SequenceMatcher(None,source,result,autojunk=False)
+    covered=sum(block.size for block in matcher.get_matching_blocks())
+    missing=[{'source_tokens':source[a:b],'source_token_range':[a,b]} for tag,a,b,_,_ in matcher.get_opcodes()
+             if tag in ('delete','replace') and b>a]
+    if not missing: return []
+    return [{'code':'EXPLANATION_SOURCE_COVERAGE','status':'pending',
+             'source_token_count':len(source),'matched_source_tokens':covered,
+             'source_coverage':round(covered/len(source),4),'differences':missing,
+             'action':'Compare the complete source development visually; preserve original wording and mathematics.'}]
+
+
+def source_diagnostics(record, catalog, index=None, question=None, provenance=None):
+    """Independent native signals; every result remains pending, never a verdict.
+
+    Existing runs without native layout retain their explicit review contract.
+    New catalogs supply layout so empty declared inventories cannot hide it.
+    """
+    pages={(p['source_id'],p['page']):p for p in (index or catalog).get('pages',[])}
+    fields=record.get('source_fields',{})
+    issues=[]; inventory=record.get('content_inventory',[])
+    if not fields:
+        issues.append({'code':'NATIVE_MAP_FIELDS_REQUIRED','status':'pending','field':'mapping',
+                       'source_id':record['source_id'],
+                       'action':'Localize stem and each option before interpreting native structure or declaring plain text.'})
+    def add(code,field,region,**extra):
+        issues.append({'code':code,'status':'pending','field':field,'source_id':record['source_id'],**region,**extra})
+    for field,regions in fields.items():
+        for region in regions:
+            page=pages.get((record['source_id'],region['page']))
+            if not page: continue
+            rect=region['bbox']; full=[0,0,page['width'],page['height']]
+            if contains(rect,full):
+                add('SOURCE_FIELD_WHOLE_PAGE',field,region,
+                    action='Delimit essential content or document a localized shared-region justification.')
+            declared=[item for item in inventory if item['field']==field]
+            native=[obj for obj in page.get('objects',[]) if contains(rect,obj['bbox']) and
+                    obj['bbox'][2]-obj['bbox'][0]>=4 and obj['bbox'][3]-obj['bbox'][1]>=4]
+            if native and not any(item['type'] in ('image','table') for item in declared):
+                add('INVENTORY_NATIVE_STRUCTURE_UNDECLARED',field,region,object_ids=[o['id'] for o in native],
+                    action='Observe these native objects; classify figure, table, decoration or background before approval.')
+            for line in page.get('lines',[]):
+                figure_label=any(item['type']=='image' and any(r['page']==region['page'] and contains(r['bbox'],line['bbox'])
+                                  for r in item['regions']) for item in declared)
+                if (not figure_label and overlaps(rect,line['bbox']) and math_text_candidates(line['text'])
+                        and not any(item['type']=='math' for item in declared)):
+                    add('INVENTORY_NATIVE_MATH_UNDECLARED',field,{'page':region['page'],'bbox':line['bbox']},text=line['text'])
+            for hint in page.get('typography_hints',[])+page.get('repetition_hints',[]):
+                if overlaps(rect,hint['bbox']):
+                    issues.append({**hint,'field':field,'source_id':record['source_id'],'page':region['page']})
+    # Cross-field sharing must carry its own reason and precise intersecting box.
+    for i,(field,regions) in enumerate(fields.items()):
+        for other,neighbors in list(fields.items())[i+1:]:
+            for region in regions:
+                for neighbor in neighbors:
+                    if region['page']!=neighbor['page'] or not overlaps(region['bbox'],neighbor['bbox']): continue
+                    intersection=[max(region['bbox'][0],neighbor['bbox'][0]),max(region['bbox'][1],neighbor['bbox'][1]),
+                                  min(region['bbox'][2],neighbor['bbox'][2]),min(region['bbox'][3],neighbor['bbox'][3])]
+                    justified=any(set(item.get('fields',[]))=={field,other} and item.get('reason','').strip() and
+                                  cover_regions([{'page':region['page'],'bbox':intersection}],item.get('regions',[]))
+                                  for item in record.get('shared_regions',[]))
+                    if not justified:
+                        add('SOURCE_FIELDS_OVERLAP_UNJUSTIFIED',field,{'page':region['page'],'bbox':intersection},other_field=other)
+    if question:
+        question_fields={'stem':question.get('stem',[]),
+                         'explanation':question.get('explanation',{}).get('blocks',[]),
+                         **{'options/'+o['label']:o['blocks'] for o in question.get('options',[])}}
+        for field,blocks in question_fields.items():
+            for position,block in enumerate(blocks_in(blocks)):
+                if block['type']=='text':
+                    for candidate in math_text_candidates(block.get('text','')):
+                        issues.append({**candidate,'field':field,'block_position':position,'source_id':record['source_id']})
+        # Use only actual observed solution regions, never the entire solution PDF.
+        if index and provenance and provenance.get('origin')=='solution' and not provenance.get('regions'):
+            issues.append({'code':'EXPLANATION_SOURCE_REGION_REQUIRED','status':'pending','field':'explanation',
+                           'source_id':provenance.get('source_id'),'pages':provenance.get('pages',[provenance.get('page')]),
+                           'action':'Localize the complete source development to compare wording without neighboring solutions.'})
+        if index and provenance and provenance.get('regions'):
+            from source_index import query_source_index
+            source_id=provenance.get('source_id')
+            if source_id in index.get('source_hashes',{}):
+                native=query_source_index(index,source_id,regions=provenance['regions'],max_chars=None,layout='text')
+                output=' '.join(b.get('text',b.get('latex','')) for b in blocks_in(question_fields['explanation']))
+                for issue in explanation_coverage(native['text'],output):
+                    issues.append({**issue,'field':'explanation','source_id':source_id,'regions':provenance['regions']})
+    return issues

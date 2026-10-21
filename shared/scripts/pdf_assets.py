@@ -85,55 +85,84 @@ def resource(source, page_no, box, path, root, resource_id):
             'page': page_no, 'bbox': [round(x, 3) for x in box]}
 
 
-def prepare_catalog(sources, paths, output, scale=1.5):
+def prepare_catalog(sources, paths, output, scale=1.5, materialize_images=True):
     output = inside(output)
     catalog = {'coordinate_system': 'top_left_pdf_points', 'scale': scale,
-               'sources': sources, 'pages': [], 'assets': [], 'evidence': [], 'warnings': []}
+               'sources': sources, 'pages': [], 'assets': [], 'asset_candidates': [], 'evidence': [], 'warnings': []}
+    from source_index import native_page, INDEX_VERSION, seal_index
+    native_index={'version':INDEX_VERSION,'coordinate_system':'top_left_pdf_points',
+                  'source_hashes':{s['id']:s['sha256'] for s in sources},'pages':[]}
     for source in sources:
         with pdfium.PdfDocument(str(paths[source['id']])) as pdf:
             for index in range(len(pdf)):
                 page = pdf[index]
                 try:
                     width, height = map(float, page.get_size())
+                    native = native_page(page, source['id'], source['sha256'], index+1)
+                    native_index['pages'].append(native)
                     prefix = f'{source["id"]}-p{index+1:04d}'
                     full_path = output / f'evidence/pages/{prefix}.png'
                     box = render_crop(page, full_path, scale=scale)
                     catalog['evidence'].append(resource(source['id'], index+1, box, full_path, output, prefix))
-                    objects = []
-                    for obj in page.get_objects(max_depth=8):
-                        kind = {pdfium.raw.FPDF_PAGEOBJ_IMAGE:'PdfImage',
-                                pdfium.raw.FPDF_PAGEOBJ_PATH:'PdfPath'}.get(obj.type)
-                        if kind is None:
-                            continue
-                        try:
-                            rect = visible_bounds(obj.get_bounds(), page.get_rotation(), width, height)
-                            bbox(rect, width, height)
-                        except (ValueError, RuntimeError):
-                            continue
-                        object_id = 'obj-' + json_digest([source['sha256'], index+1, kind, rect])[:20]
-                        objects.append({'id': object_id, 'kind': kind, 'bbox': rect})
+                    objects = native['objects']
+                    for obj in objects:
+                        kind,rect=obj['kind'],obj['bbox']
                         # Keep paths as geometry; vector compositions need an explicit crop request.
                         if kind != 'PdfImage' or rect[2]-rect[0] < 4 or rect[3]-rect[1] < 4:
                             continue
                         asset_id = 'img-' + json_digest([source['sha256'], index+1, rect])[:20]
-                        if any(a['id'] == asset_id for a in catalog['assets']):
+                        if any(a['id'] == asset_id for a in catalog['asset_candidates']):
+                            continue
+                        catalog['asset_candidates'].append({'id':asset_id,'source_id':source['id'],
+                            'source_sha256':source['sha256'],'page':index+1,'bbox':rect,'object_ids':[obj['id']],
+                            'status':'pending','kind':kind})
+                        if not materialize_images:
                             continue
                         target = output / f'assets/{asset_id}.png'
                         render_crop(page, target, rect, scale=2)
                         catalog['assets'].append(resource(source['id'], index+1, rect, target, output, asset_id))
                     catalog['pages'].append({'source_id': source['id'], 'page': index+1,
                                              'width': width, 'height': height, 'rotation': page.get_rotation(),
-                                             'evidence_id': prefix, 'objects': objects})
+                                             'evidence_id': prefix, 'objects': objects, 'lines':native['lines']})
                 finally:
                     page.close()
+    seal_index(native_index)
+    for page,native in zip(catalog['pages'],native_index['pages']):
+        page['repetition_hints']=native['repetition_hints']
+        page['typography_hints']=native['typography_hints']
     write(output / 'catalog.json', catalog)
+    write(output / 'native-source-index.json', native_index)
     return catalog
+
+
+def materialize_assets(run_dir, ids):
+    """Render only selected native image candidates; preserve frozen provenance."""
+    root=inside(run_dir); catalog=read(root/'catalog.json')
+    if not isinstance(ids,list) or not ids or any(not isinstance(value,str) for value in ids):
+        raise ValueError('Select nonempty asset candidate IDs')
+    if len(ids)!=len(set(ids)): raise ValueError('Duplicate asset candidate ID')
+    candidates={candidate['id']:candidate for candidate in catalog.get('asset_candidates',[])}
+    sources={source['id']:source for source in catalog['sources']}
+    requests=[]
+    for candidate_id in ids:
+        if candidate_id not in candidates: raise ValueError('Unknown asset candidate: '+candidate_id)
+        candidate=candidates[candidate_id]; source=sources.get(candidate['source_id'])
+        if not source or candidate.get('source_sha256')!=source['sha256']:
+            raise ValueError('Asset candidate source hash mismatch')
+        expected='img-'+json_digest([source['sha256'],candidate['page'],candidate['bbox']])[:20]
+        if candidate_id!=expected: raise ValueError('Asset candidate geometry changed')
+        requests.append({'id':candidate_id,'source_id':candidate['source_id'],'page':candidate['page'],
+                         'bbox':candidate['bbox'],'role':'asset'})
+    apply_crops(root,requests)
+    current=read(root/'catalog.json')
+    return [item for item in current['assets'] if item['id'] in ids]
 
 
 def apply_crops(run_dir, requests):
     run_dir = inside(run_dir)
     catalog = read(run_dir / 'catalog.json')
-    paths = read(run_dir / 'sources.local.json')
+    from checkpoint_export import resolve_sources
+    paths = resolve_sources(run_dir)
     sources = {s['id']: s for s in catalog['sources']}
     ids = {r['id']: r for r in catalog['assets'] + catalog['evidence']}
     additions = []
@@ -161,7 +190,7 @@ def apply_crops(run_dir, requests):
         box = bbox(req['bbox'])
         if rid in ids:
             old = ids[rid]
-            if old['source_id'] == source_id and old['page'] == page_no and old['bbox'] == box:
+            if old['source_id'] == source_id and old['page'] == page_no and old['bbox'] == [round(value,3) for value in box]:
                 continue
             raise ValueError(f'Crop ID already used with different geometry: {rid}')
         folder = 'assets' if req.get('role', 'asset') == 'asset' else 'evidence'
@@ -183,6 +212,13 @@ def apply_crops(run_dir, requests):
                         warnings.append({'asset_id':rid, 'source_id':source_id, 'page':page_no,
                                          'code':'CROP_NEAR_TEXT', 'details':diagnostic['nearby_text'],
                                          'action':'Inspect source context: nearby labels may belong to the figure.'})
+                    from source_index import crop_diagnostics, mapped_crop_assignment
+                    native=next((p for p in catalog['pages'] if p['source_id']==source_id and p['page']==page_no),{})
+                    assignment=req.get('assignment')
+                    if assignment is None and (run_dir/'selection.json').exists():
+                        assignment=mapped_crop_assignment(req,read(run_dir/'selection.json'),native)
+                    for issue in crop_diagnostics(native,box,assignment):
+                        warnings.append({'asset_id':rid,'source_id':source_id,'page':page_no,**issue})
             finally:
                 page.close()
         pending.append((rid,folder,source_id,source_path,page_no,box,output))

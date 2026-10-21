@@ -13,7 +13,7 @@ import sys
 import time
 from pathlib import Path
 
-from lab import ROOT, UPSTREAM, artifact_path, digest, event, inside, json_digest, now, read, write, blocks_in, reserve_output
+from lab import ROOT, UPSTREAM, artifact_path, digest, event, inside, json_digest, now, read, write, blocks_in, question_blocks, reserve_output
 from package_io import inspect_package, pack, validate
 from pdf_assets import apply_crops, prepare_catalog, source_record
 from curriculum import pending_curriculum, prepare_ledger, curriculum_hash
@@ -40,7 +40,8 @@ def _verify_resume(run_dir):
     selection = read(folder/'selection.json')
     if run.get('selection_hash') and json_digest(selection) != run['selection_hash']:
         raise ValueError('Frozen selection changed')
-    paths = read(folder/'sources.local.json')
+    from checkpoint_export import resolve_sources
+    paths = resolve_sources(folder)
     for source in read(folder/'sources.json'):
         if digest(paths[source['id']]) != source['sha256']:
             raise ValueError('Source changed since preparation')
@@ -81,6 +82,20 @@ def _ingest(run_dir, response_path, raw_response_bytes=None, explanation_provena
     provenance=response.get('curriculum_provenance',{})
     if not isinstance(provenance,dict) or not set(provenance).issubset({q['id'] for q in questions}):
         raise ValueError('Curriculum provenance must refer only to batch questions')
+    # Freeze operation inputs once. Proposed questions cannot alter these shared
+    # manifests, and full validation below checks their global invariants first.
+    catalog = read(folder/'catalog.json') if (folder/'catalog.json').exists() else None
+    selection = read(folder/'selection.json') if (folder/'selection.json').exists() else None
+    validation_context = {}
+    asset_digests = {}
+    def operation_content_hash(question, current_candidate=None, root=None):
+        return content_hash(question,current_candidate,root,digest_cache=asset_digests)
+    def operation_solution_hash(question, current_candidate=None, root=None):
+        return solution_hash(question,current_candidate,root,digest_cache=asset_digests)
+    validate(candidate,folder,validation_context=validation_context)
+    if catalog is not None: validate_geometry(candidate,catalog)
+    if selection is not None and candidate['schema_version']=='0.2.0': validate_mapping(candidate,selection)
+    frozen_expected = {q['id']:q for q in candidate['exam']['expected_questions']}
     prior_ledger=read(folder/'curriculum-ledger.json') if (folder/'curriculum-ledger.json').exists() else {}
     ledger=copy.deepcopy(prior_ledger)
     accepted=[]; rejected=[]; unchanged=[]
@@ -92,8 +107,8 @@ def _ingest(run_dir, response_path, raw_response_bytes=None, explanation_provena
             if q['fidelity']['status'] not in ('pending','rejected') or q['answer']['status'] not in ('missing','provisional') or q['explanation']['status'] not in ('missing','provisional'):
                 raise ValueError('Invalid provisional review status')
             prior=existing[q['id']]
-            same_content=content_hash(q,candidate,folder)==content_hash(prior,candidate,folder)
-            same_solution=solution_hash(q,candidate,folder)==solution_hash(prior,candidate,folder)
+            same_content=operation_content_hash(q,candidate,folder)==operation_content_hash(prior,candidate,folder)
+            same_solution=operation_solution_hash(q,candidate,folder)==operation_solution_hash(prior,candidate,folder)
             if same_content:
                 q['fidelity']=copy.deepcopy(prior['fidelity'])
                 if same_solution:
@@ -104,19 +119,21 @@ def _ingest(run_dir, response_path, raw_response_bytes=None, explanation_provena
             if not same_solution:
                 q['answer']['status']='provisional' if q['answer']['label'] is not None else 'missing'
                 q['explanation']['status']='provisional' if q['explanation']['blocks'] else 'missing'
-            tentative=copy.deepcopy(candidate)
-            tentative['questions']=[q if old['id']==q['id'] else old for old in candidate['questions']]
-            validate(tentative,folder)
-            if (folder/'catalog.json').exists(): validate_geometry(tentative,read(folder/'catalog.json'))
-            if (folder/'selection.json').exists() and tentative['schema_version'] == '0.2.0': validate_mapping(tentative,read(folder/'selection.json'))
+            used_assets={block['asset_id'] for block in question_blocks(q) if block['type']=='image'}
+            projection={**candidate, 'questions':[q],
+                'exam':{**candidate['exam'],'expected_questions':[frozen_expected[q['id']]]},
+                'assets':[asset for asset in candidate['assets'] if asset['id'] in used_assets], 'evidence':[]}
+            validate(projection,folder,validation_context=validation_context)
+            if catalog is not None: validate_geometry(projection,catalog)
+            if selection is not None and candidate['schema_version'] == '0.2.0': validate_mapping(projection,selection)
             # Exact retries preserve the original rationale and create no archives.
-            if q==prior and (tentative['schema_version']!='0.2.0' or ledger.get(q['id'],{}).get('curriculum_sha256')==curriculum_hash(q,content_hash(q,tentative,folder))):
+            if q==prior and (candidate['schema_version']!='0.2.0' or ledger.get(q['id'],{}).get('curriculum_sha256')==curriculum_hash(q,operation_content_hash(q,projection,folder))):
                 unchanged.append(q['id']); continue
             new_ledger=ledger
-            if tentative['schema_version']=='0.2.0':
+            if candidate['schema_version']=='0.2.0':
                 subset={**response,'questions':[q], 'curriculum_provenance':{qid:r for qid,r in response.get('curriculum_provenance',{}).items() if qid==q['id']}}
-                new_ledger=prepare_ledger(tentative,subset,content_hash,folder,ledger)
-            candidate=tentative
+                new_ledger={**ledger, **prepare_ledger(projection,subset,operation_content_hash,folder,ledger)}
+            candidate={**candidate, 'questions':[q if old['id']==q['id'] else old for old in candidate['questions']]}
             ledger=new_ledger
             existing[q['id']]=q
             accepted.append(q['id'])
@@ -128,13 +145,22 @@ def _ingest(run_dir, response_path, raw_response_bytes=None, explanation_provena
         raise error
     result={'accepted':accepted,'rejected':rejected,'unchanged':unchanged,'questions_updated':len(accepted),'archive':None}
     if not accepted: return result
+    # Recheck the complete candidate with fresh resource bytes. No per-question
+    # projection or operation cache replaces cross-question/final validation.
+    validate(candidate,folder)
+    if catalog is not None: validate_geometry(candidate,catalog)
+    if selection is not None and candidate['schema_version']=='0.2.0': validate_mapping(candidate,selection)
+    if candidate['schema_version']=='0.2.0':
+        accepted_response={**response,'questions':[existing[qid] for qid in accepted],
+            'curriculum_provenance':{qid:value for qid,value in provenance.items() if qid in accepted}}
+        ledger=prepare_ledger(candidate,accepted_response,operation_content_hash,folder,ledger)
     stamp=str(time.time_ns())
     candidate['run']['ingest_transaction'] = stamp
     archive='reports/ai/'+stamp+'.json'
     checkpoint=read(folder/'ingest-checkpoints.json') if (folder/'ingest-checkpoints.json').exists() else {}
     for qid in accepted:
         q=existing[qid]
-        checkpoint[qid]={'content_sha256':content_hash(q,candidate,folder),'solution_sha256':solution_hash(q,candidate,folder),
+        checkpoint[qid]={'content_sha256':operation_content_hash(q,candidate,folder),'solution_sha256':operation_solution_hash(q,candidate,folder),
                          'curriculum_sha256':ledger.get(qid,{}).get('curriculum_sha256'),'archive':archive,'status':'accepted'}
     updates={'candidate.json':json_bytes(candidate),'ingest-checkpoints.json':json_bytes(checkpoint),
              'versions/candidate-before-'+stamp+'.json':original_bytes,archive:response_bytes}
@@ -177,7 +203,7 @@ def initial_candidate(run, suite, sources):
             'assets': [], 'evidence': []}
 
 
-def bound_assets(blocks, candidate, root=None):
+def bound_assets(blocks, candidate, root=None, *, digest_cache=None):
     ids=sorted({b['asset_id'] for b in blocks_in(blocks) if b['type']=='image'})
     if ids and candidate is None:
         raise ValueError('Hashing image content requires its candidate asset manifest')
@@ -185,22 +211,30 @@ def bound_assets(blocks, candidate, root=None):
     records=[]
     for aid in ids:
         record=copy.deepcopy(assets[aid])
-        if root is not None and digest(artifact_path(root,record['path'],'assets')) != record['sha256']:
-            raise ValueError('Asset bytes differ from declared hash')
+        if root is not None:
+            path = artifact_path(root,record['path'],'assets')
+            cache_key = str(path)
+            if digest_cache is None:
+                actual = digest(path)
+            else:
+                if cache_key not in digest_cache: digest_cache[cache_key] = digest(path)
+                actual = digest_cache[cache_key]
+            if actual != record['sha256']:
+                raise ValueError('Asset bytes differ from declared hash')
         records.append(record)
     return records
 
 
-def content_hash(q, candidate=None, root=None):
+def content_hash(q, candidate=None, root=None, *, digest_cache=None):
     payload={k:q[k] for k in ('id','source_id','number','regions','stem','options')}
-    payload['assets']=bound_assets(q['stem']+[b for o in q['options'] for b in o['blocks']],candidate,root)
+    payload['assets']=bound_assets(q['stem']+[b for o in q['options'] for b in o['blocks']],candidate,root,digest_cache=digest_cache)
     payload['source']=next((s for s in (candidate or {}).get('sources',[]) if s['id']==q['source_id']),None)
     return json_digest(payload)
 
 
-def solution_hash(q, candidate=None, root=None):
-    return json_digest({'content':content_hash(q,candidate,root),'label':q['answer']['label'],'origin':q['answer']['origin'],
-                        'explanation':q['explanation']['blocks'],'assets':bound_assets(q['explanation']['blocks'],candidate,root)})
+def solution_hash(q, candidate=None, root=None, *, digest_cache=None):
+    return json_digest({'content':content_hash(q,candidate,root,digest_cache=digest_cache),'label':q['answer']['label'],'origin':q['answer']['origin'],
+                        'explanation':q['explanation']['blocks'],'assets':bound_assets(q['explanation']['blocks'],candidate,root,digest_cache=digest_cache)})
 
 
 def record_review(run_dir, path):

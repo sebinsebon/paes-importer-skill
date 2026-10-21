@@ -115,12 +115,22 @@ def unique(records, key, name):
     return {r[key]: r for r in records}
 
 
-def validate(data, root=None, blob_reader=None):
+def validate(data, root=None, blob_reader=None, *, validation_context=None):
+    """Validate completely; an optional cache belongs to one immutable operation.
+
+    Call without a shared context for the final pre-commit validation so resource
+    bytes and schema are checked afresh at the publication boundary.
+    """
     version = data.get('schema_version')
     if version not in ('0.1.0', '0.2.0'):
         raise ValueError('Unsupported final schema_version')
     schema = SCHEMA if version == '0.2.0' else SCHEMA.with_name('final-0.1.schema.json')
-    errors = sorted(Draft202012Validator(read(schema)).iter_errors(data), key=lambda e: str(e.path))
+    context = validation_context if validation_context is not None else {}
+    validators = context.setdefault('schema_validators', {})
+    schema_key = str(schema)
+    if schema_key not in validators:
+        validators[schema_key] = Draft202012Validator(read(schema))
+    errors = sorted(validators[schema_key].iter_errors(data), key=lambda e: str(e.path))
     if errors:
         raise ValueError('; '.join(f'{list(e.path)}: {e.message}' for e in errors[:6]))
     sources = unique(data['sources'], 'id', 'source IDs')
@@ -147,11 +157,15 @@ def validate(data, root=None, blob_reader=None):
                 raise ValueError(f'Invalid resource source/page: {resource["id"]}')
             bbox(resource['bbox'])
             if root is not None or blob_reader is not None:
-                content = blob_reader(path) if blob_reader else artifact_path(root, path, collection).read_bytes()
-                if hashlib.sha256(content).hexdigest() != resource['sha256']:
-                    raise ValueError(f'Hash mismatch: {path}')
-                if not content.startswith(b'\x89PNG\r\n\x1a\n'):
-                    raise ValueError(f'Invalid PNG: {path}')
+                cache_key = (str(Path(root).resolve()) if root is not None else id(blob_reader), path, resource['sha256'])
+                checked = context.setdefault('checked_resources', set())
+                if cache_key not in checked:
+                    content = blob_reader(path) if blob_reader else artifact_path(root, path, collection).read_bytes()
+                    if hashlib.sha256(content).hexdigest() != resource['sha256']:
+                        raise ValueError(f'Hash mismatch: {path}')
+                    if not content.startswith(b'\x89PNG\r\n\x1a\n'):
+                        raise ValueError(f'Invalid PNG: {path}')
+                    checked.add(cache_key)
     for q in data['questions']:
         validate_structured_content(q)
         if version == '0.2.0':

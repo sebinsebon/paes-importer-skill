@@ -1,5 +1,5 @@
 {
-  "version": "1.4.1-portable",
+  "version": "1.5.0-portable",
   "protocol_version": "0.4.0",
   "files": [
     {
@@ -12,11 +12,11 @@
     },
     {
       "path": "README.md",
-      "sha256": "22374a7dbe913f638c61d0a044f12870cf83820637f061f86945639c1a9a7d01"
+      "sha256": "dc7e879792dcc84448fcf49efc7ecc2ccee5549110503ee18d4e52293c006ff9"
     },
     {
       "path": "SKILL.md",
-      "sha256": "61da2237f3d6b7fa3f842f5abf0171d347bf7b101a9f0895248e7b95a3cbda5c"
+      "sha256": "624f6d55867afa6af578751959d5ac630ed4a1081ff385aefc41222ffe7d4814"
     },
     {
       "path": "flows/01-chat-con-solucionario/WORKFLOW.md",
@@ -36,7 +36,7 @@
     },
     {
       "path": "references/advanced.md",
-      "sha256": "de4ec8870e6d3cf90290fc5634c17c09ce4908691ffb52bb6ee860e02976228d"
+      "sha256": "96a2d6065c8e12b529ef4be8e388d53f7b76fde9c5e0c44289d63ba176975811"
     },
     {
       "path": "references/audit.md",
@@ -48,7 +48,7 @@
     },
     {
       "path": "references/interfaces.md",
-      "sha256": "30db9dd33fea2ff03c370bf7a28f611f31d05925faa31385820052d62c761fdf"
+      "sha256": "6d20696aef16fccdc70212024a38d1c64985b64db9c7982cd15a555a3c2bc4c2"
     },
     {
       "path": "references/representation.md",
@@ -56,7 +56,7 @@
     },
     {
       "path": "references/workflow.md",
-      "sha256": "46d8466caabc8d22be83d7c976f3a2170700ceb70561ee5808d2632174de8e76"
+      "sha256": "baa03761d615828fadb306832ab1e562ac9a6699e5166ed934b7c90764044ebd"
     },
     {
       "path": "requirements-visual.txt",
@@ -76,7 +76,7 @@
     },
     {
       "path": "scripts/importer.py",
-      "sha256": "8a42ef156c134af3fa63e3a474da0489926a28c50bb21c8e6d591f0629ba3cfd"
+      "sha256": "afb7bbda995256f8f771c9e8b798e2491410d972a8f3d5aba3af35f6cc0a3010"
     },
     {
       "path": "scripts/policy.py",
@@ -127,12 +127,16 @@
       "sha256": "eefb608780378cea3384f774829f4f3fde2b869ae56ebe08ac8d2fefe3283998"
     },
     {
+      "path": "shared/scripts/adopt_checkpoint.py",
+      "sha256": "43a9d6ed96a3106a5f5bca702791869e83c58f992b40e3a166957cdf1a8a34a3"
+    },
+    {
       "path": "shared/scripts/batch_plan.py",
-      "sha256": "666acfa28e1974e12c4273f344577d4e10ee4c67dd48f61304ea14196b304d49"
+      "sha256": "addd69d64467ec17b6f1779801ba82e30e55275ac002db76ffefc93b8189d66b"
     },
     {
       "path": "shared/scripts/capture_review.py",
-      "sha256": "c0371095ef60ee8528d1cad436d0e416c8ae2728abdcc37c4499cef4822f1305"
+      "sha256": "3fb195076a7f19b21917a3d72a1a5ceb4422039ffa92c523e5546aac2ef36ff8"
     },
     {
       "path": "shared/scripts/check_final.cjs",
@@ -147,12 +151,16 @@
       "sha256": "20a3d34e70bffdd4c428116ed288ec9c2af31c77dcaaf45c3820395186a706f2"
     },
     {
+      "path": "shared/scripts/checkpoint_export.py",
+      "sha256": "e876e9c55915d89474c83c36c2c276a43217d619b13eec16b916ae461f4a6182"
+    },
+    {
       "path": "shared/scripts/checkpoints.py",
       "sha256": "45bc5a509f88814ff4a6e7bf8b8bdd3e702c6f862eb85dfb6cf5a2db179932ab"
     },
     {
       "path": "shared/scripts/content_inventory.py",
-      "sha256": "e9af4b793dc592a50dbb78738cd5dd7e005602b3c61cfc8a32a9b72549a506f3"
+      "sha256": "0f888fa1e2b000e517ea47f096913230866178bd462a6566beee8314d14a5ffe"
     },
     {
       "path": "shared/scripts/curriculum.py",
@@ -196,7 +204,7 @@
     },
     {
       "path": "shared/scripts/metrics.py",
-      "sha256": "985ad1f289f2bd62c08a5bf7a3bd71c5d35cba61ad28052ea7689f843b5798c2"
+      "sha256": "16032016fe44a2e4ee5b37f547e3b46398f6b91cb3bdb2f23c5ac322415024c7"
     },
     {
       "path": "shared/scripts/output_policy.py",
@@ -204,15 +212,19 @@
     },
     {
       "path": "shared/scripts/package_io.py",
-      "sha256": "435ca9b2a71928654e08fd202fc5c022b79fe17cba3e93815502bc6aed62af8f"
+      "sha256": "aac782ac5ae24961e63cc447810f4fa00fc136a399bfedba9e17ce578a6c2d0b"
     },
     {
       "path": "shared/scripts/pdf_assets.py",
-      "sha256": "3392399d6fec1e5b4113c5c9af3b5eb6f70916e80d33c48b9a19c8790f40a0e4"
+      "sha256": "ea2f207f5a744e177c742256bdda0cefdc370757d31f5e1f39c0e90ba1e07c4c"
     },
     {
       "path": "shared/scripts/pipeline.py",
-      "sha256": "b92fd0ea52538b588df33b6be14d173c054a993c50b5cf36e7e0d02eba3ed3a6"
+      "sha256": "15aaaef3a8599d7da65ca4b6fd4006326535d114f1bc77c0e68257624231f0bf"
+    },
+    {
+      "path": "shared/scripts/provenance_repair.py",
+      "sha256": "6bbba790d78ae9b25a26c3bf3ca06ab6354dcc31076ef619ab9d912ce3905c93"
     },
     {
       "path": "shared/scripts/quality.py",
@@ -223,12 +235,16 @@
       "sha256": "674875ccfb1a20072744af479a7ea9ae3d9aea1eb7ae7f19921f53dde909401f"
     },
     {
+      "path": "shared/scripts/source_index.py",
+      "sha256": "bb1d90564c962ce4d826b67e30bf49d7173458b64ceb3c2df53430ef79c99e2c"
+    },
+    {
       "path": "shared/scripts/source_review.py",
-      "sha256": "f3eaa9e7cfae1ef5197924ef3777e1dce85e3ea006c7b539e32db638f7963af3"
+      "sha256": "ae3e67e2eec2da214db5f3e9649eacf10dd5dbf6690d3f401237bd4a2d9475ff"
     },
     {
       "path": "shared/scripts/visual_review.py",
-      "sha256": "aaa95b013d3b6916e31c6623665532dc3eae6191199d1afe0a459f68dc958929"
+      "sha256": "a0ae51c4716c90a1a28a9153b9042be9861af41cef316b1df0a5e6fb6583cd9f"
     },
     {
       "path": "viewer/block-renderer.css",

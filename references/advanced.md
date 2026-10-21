@@ -8,7 +8,7 @@ El contenido se escribe mediante un serializador UTF-8 y luego se transporta com
 
 ## Plan de lotes y recuperación
 
-`batch-plan --run RUN --batch-size 5 --max-characters 24000` devuelve batches, question_index y page_index sin modificar la ejecución. Parte de selección/inventario y contexto de pauta congelados, incluso cuando el candidato inicial todavía no tiene regiones transcritas. Cada lote conserva IDs, fuentes, páginas, assets y hashes de contenido/contexto/catálogo. Un mapa insuficiente se informa explícitamente. El límite de caracteres es un presupuesto de transporte, no una estimación de tokens. Una pregunta que excede el presupuesto permanece íntegra y sola; no cortar fórmulas, tablas o figuras.
+`batch-plan --run RUN --pending-only --context --batch-size 5 --max-characters 24000` devuelve batches, question_index y page_index conservando el candidato. Puede generar o renovar el índice nativo verificable. Parte de selección/inventario y contexto de pauta congelados, incluso cuando el candidato inicial todavía no tiene regiones transcritas. Cada lote conserva IDs, fuentes, páginas, assets, texto/disposición compacta, plantillas y hashes. El límite de caracteres usa el contexto fuente real, sin estimar tokens; una pregunta excesiva queda íntegra y sola. Complejidad y rechazos recientes reducen los límites. Consulta [recuperación portable](interfaces.md#plan-de-lotes-y-recuperación) para exportar/adoptar checkpoints.
 
 `ingest` devuelve accepted, rejected (con motivo) y unchanged por pregunta. Conservar las aceptadas; regenerar únicamente las rechazadas. Un reenvío idéntico conserva estados y razones vigentes. Máximo tres intentos por pregunta dentro del presupuesto disponible; después ampliar evidencia, dejar pending/unresolved explícito o registrar fail. No repetir lotes aprobados para aparentar reparación.
 
@@ -16,7 +16,7 @@ El contenido se escribe mediante un serializador UTF-8 y luego se transporta com
 
 Si una observación congelada exige una variable, tabla o figura inexistente, vuelve a mirar su fuente y usa `repair-map --run RUN --response correccion.json`. La entrada contiene `reason` no vacío y `questions` con los registros completos corregidos de selection.json, o `solution_entries` con las entradas completas corregidas de answer-key-map.json.
 
-En preguntas solo pueden cambiar content_inventory, source_fields, regions, field_regions y mapping_pending; en soluciones, content_inventory y observation. No permite cambiar identidad, numeración, etiquetas, clave, páginas del solucionario ni cobertura. Conserva versiones y solicitud, actualiza hashes mediante el checkpoint existente y retira solo cotejos/vistas de las preguntas afectadas. No modifica su contenido ni aprueba la corrección: revisa y renueva sus cotejos. Si cambia la fuente o la identidad, inicia otra ejecución.
+En preguntas solo pueden cambiar content_inventory, source_fields, regions, field_regions, mapping_pending y justificaciones shared_regions; en soluciones, content_inventory y observation. No permite cambiar identidad, numeración, etiquetas ni clave. Para ampliar páginas de continuación se usa repair-provenance con evidencia. Conserva versiones y solicitud, actualiza hashes mediante el checkpoint existente y retira solo cotejos/vistas afectados. No modifica su contenido ni aprueba la corrección: revisa y renueva sus cotejos. Si cambia la fuente o la identidad, inicia otra ejecución.
 
 ## Lectura ciega 0.2.0
 
@@ -28,7 +28,7 @@ La verificación comienza con input.json de stage source-reading y reading-templ
 
 ## Medidas de proveedor
 
-`record-usage --run RUN --response uso.json` acepta `{run_id, events:[{event_id, usage_source, input_tokens, output_tokens, cost, currency, duration_seconds}]}`. usage_source identifica el recibo o medición real. Cada evento corresponde a una llamada, sin agregados superpuestos. Mantener null para medidas no expuestas; currency es obligatorio cuando cost está medido. El mismo event_id con datos idénticos es idempotente; datos diferentes con el mismo ID se rechazan. No duplicar llamadas de agentes en una suma del coordinador. Los totales incompletos permanecen null, con subtotales conocidos separados.
+`record-usage --run RUN --response uso.json` acepta `{run_id, events:[{event_id, usage_source, input_tokens, output_tokens, cached_input_tokens, cost, currency, duration_seconds}]}`. usage_source identifica el recibo real. Cada evento corresponde a una llamada, sin agregados superpuestos; cached_input_tokens registra la parte cacheada cuando el proveedor la expone, sin sumarla de nuevo a input_tokens. Mantener null para medidas no expuestas; currency es obligatorio con costo medido. El mismo event_id idéntico es idempotente; datos distintos se rechazan. No duplicar llamadas de agentes en una suma del coordinador. Los totales incompletos permanecen null, con subtotales conocidos separados. provider_receipts_count cuenta recibos; total_provider_calls desconocido permanece null incluso sin recibos.
 
 El `run.json` de publicación conserva `usage` con alcance `production_only`; `usage_scopes` separa producción y verificación. El agregado mantiene null si falta una medición. La duración acumulada de llamadas no es tiempo de pared. No repitas medidas de verificación en los recibos de producción.
 

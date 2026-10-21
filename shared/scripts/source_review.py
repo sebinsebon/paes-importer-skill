@@ -30,7 +30,7 @@ HTML = r'''<!doctype html>
 <title>Inspección de fuente y resultado PAESSED</title>
 <link rel="stylesheet" href="vendor/katex/dist/katex.min.css"><link rel="stylesheet" href="block-renderer.css">
 <style>body{margin:0;background:#f3f4f6;color:#17212b;font:16px system-ui,sans-serif}header{padding:1.5rem;background:#17212b;color:white}main{max-width:1500px;margin:auto;padding:1rem}.question{background:white;border:1px solid #cbd5e1;border-radius:8px;padding:1rem;margin-bottom:1.5rem}.compare{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:1.5rem}.source-page{position:relative;border:1px solid #cbd5e1;margin:.5rem 0}.source-page img{display:block;width:100%;height:auto}.region{position:absolute;border:2px solid #d97706;box-sizing:border-box;pointer-events:none;background:#fbbf2415}.region.asset{border-color:#dc2626;background:#dc262611}.region.required{border-color:#2563eb;background:#2563eb11}.crop img{max-width:100%;height:auto;border:1px solid #dc2626}.crop{margin:1rem 0}.meta{color:#475569;overflow-wrap:anywhere;font-size:.85rem}.option{display:grid;grid-template-columns:2rem minmax(0,1fr);margin:.75rem 0}.pending{color:#9a3412;background:#ffedd5;padding:.6rem}.result{overflow-wrap:anywhere}h2,h3{margin:.8rem 0}a{color:#0369a1}.paessed-table{border-collapse:collapse}.paessed-table td{border:1px solid #94a3b8;padding:.5rem}@media(max-width:850px){.compare{grid-template-columns:1fr}}@media print{header{background:white;color:black}.question{break-inside:avoid}.compare{gap:.5rem}}</style></head>
-<body><header><h1>Fuente y resultado</h1><p>Inspector privado. Revisión visual, matemática e independiente pendientes; esta página no certifica contenido.</p><p id="identity"></p><div id="errors" role="alert"></div></header><main id="questions"></main>
+<body><header><h1>Fuente y resultado</h1><p>Inspector privado. Revisión visual, matemática e independiente pendientes; esta página no certifica contenido.</p><p id="identity"></p><div id="errors" role="alert"></div></header><section id="capture-self-test" style="background:white;color:black;padding:1rem"><p>Prueba observable de captura: texto PAES</p><div id="capture-probe-math"></div><table><tr><td>Tabla</td><td>1</td></tr></table><img alt="Prueba imagen" width="24" height="24" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAIAAABvFaqvAAAAOElEQVR4nGNUTX7NQA3ARBVTGEYNIgawYApdi7EkqE1ryXE0kdFYIwxGw2hEhxHjaAlJEAy+WAMABMgGF66piXgAAAAASUVORK5CYII="></section><main id="questions"></main>
 <script id="review-data" type="application/json">__DATA__</script>
 <script src="vendor/katex/dist/katex.min.js"></script><script src="block-renderer.js"></script>
 <script>
@@ -42,6 +42,7 @@ const assets=Object.fromEntries(data.assets.map(a=>[a.id,a.path]));
 const identity=document.getElementById('identity');identity.textContent=data.exam.title+' · '+data.questions.length+' preguntas · SHA-256 '+review.candidate_sha256;
 function el(tag,text,parent){const node=document.createElement(tag);if(text!==undefined)node.textContent=text;if(parent)parent.append(node);return node;}
 function render(parent,blocks){PaessedBlocks.renderBlocks(parent,blocks,{assetUrls:assets,katex:window.katex,onError(error){el('p','Error KaTeX: '+error.message,document.getElementById('errors'));}});}
+render(document.getElementById('capture-probe-math'),[{type:'math',latex:'x^2+1',display:false}]);
 for(const q of data.questions){
  const section=el('section',undefined,document.getElementById('questions'));section.className='question';section.id='question-'+q.id;section.dataset.questionId=q.id;
  el('h2','Pregunta '+q.number+' · '+q.id,section);
@@ -53,7 +54,11 @@ for(const q of data.questions){
  collect(q.stem);for(const o of q.options)collect(o.blocks);collect(q.explanation.blocks);const usedAssets=data.assets.filter(a=>usedIds.has(a.id));
  el('h3','Fuente PDF',source);el('p','Naranja: pregunta. Rojo: recorte solicitado. Azul: contenido observado que debe conservarse.',source).className='meta';
  for(const context of review.question_pages[q.id]){const p=pageMap.get(JSON.stringify([context.source_id,context.page]));el('p',sourceMap.get(p.source_id).name+' · página física '+p.page,source).className='meta';
-  const frame=el('div',undefined,source);frame.className='source-page';const image=el('img',undefined,frame);image.src=p.path;image.alt='Página '+p.page+' de '+sourceMap.get(p.source_id).name;
+  const relevant=[...q.regions.filter(r=>q.source_id===p.source_id&&r.page===p.page),...usedAssets.filter(a=>a.source_id===p.source_id&&a.page===p.page),...(review.requirements[q.id]||[]).flatMap(item=>item.regions.filter(r=>(item.source_id||q.source_id)===p.source_id&&r.page===p.page))];
+  const unique=new Map(relevant.map(r=>[JSON.stringify(r.bbox),r.bbox]));
+  for(const box of unique.values()){const w=box[2]-box[0],h=box[3]-box[1];const zoom=el('div',undefined,source);zoom.className='source-region';zoom.style.cssText='position:relative;overflow:hidden;width:100%;aspect-ratio:'+w+'/'+h+';border:1px solid #d97706;margin:.5rem 0';const img=el('img',undefined,zoom);img.src=p.path;img.alt='Región pertinente '+JSON.stringify(box);img.style.cssText='position:absolute;max-width:none;width:'+(100*p.width/w)+'%;left:'+(-100*box[0]/w)+'%;top:'+(-100*box[1]/h)+'%';}
+  const full=el('details',undefined,source);el('summary','Contexto completo de la página',full);if(!unique.size)full.open=true;
+  const frame=el('div',undefined,full);frame.className='source-page';const image=el('img',undefined,frame);image.src=p.path;image.alt='Página '+p.page+' de '+sourceMap.get(p.source_id).name;
   function outline(r,kind,label){const region=el('div',undefined,frame);region.className='region '+kind;region.title=label;region.style.left=(100*r.bbox[0]/p.width)+'%';region.style.top=(100*r.bbox[1]/p.height)+'%';region.style.width=(100*(r.bbox[2]-r.bbox[0])/p.width)+'%';region.style.height=(100*(r.bbox[3]-r.bbox[1])/p.height)+'%';}
   for(const r of q.regions.filter(r=>q.source_id===p.source_id&&r.page===p.page))outline(r,'','Pregunta');
   for(const a of usedAssets.filter(a=>a.source_id===p.source_id&&a.page===p.page))outline(a,'asset',a.id);
@@ -80,7 +85,8 @@ def safe_output(output, workspace=None):
     return output
 
 
-def build_review(candidate, sources, output, scale=1.5, *, workspace=None, context=None, requirements=None):
+def build_review(candidate, sources, output, scale=1.5, *, workspace=None, context=None, requirements=None,
+                 question_ids=None, page_cache=None):
     if not isinstance(scale, (int,float)) or not math.isfinite(scale) or not .25 <= scale <= 3:
         raise ValueError('Scale must be between .25 and 3')
     output = safe_output(output, workspace)
@@ -93,6 +99,9 @@ def build_review(candidate, sources, output, scale=1.5, *, workspace=None, conte
         data = json.loads(candidate_payload.decode('utf-8-sig'))
     blobs = asset_blobs(candidate, data, candidate_payload)
     validate(data, blob_reader=blobs.__getitem__)
+    if question_ids is not None:
+        from visual_review import select_questions
+        data['questions'] = select_questions(data, question_ids)
     declared = {s['id']:s for s in data['sources']}
     if set(sources) != set(declared):
         raise ValueError('Supply every declared source exactly once by ID')
@@ -142,14 +151,43 @@ def build_review(candidate, sources, output, scale=1.5, *, workspace=None, conte
     shutil.copyfile(ROOT/'viewer/block-renderer.css',output/'block-renderer.css')
     shutil.copytree(ROOT/'viewer/vendor/katex',output/'vendor/katex')
     pages = []
+    pages_rendered = pages_reused = 0
+    cache_directory = external_directory(page_cache) if page_cache is not None else None
+    if cache_directory:
+        if not cache_directory.is_relative_to(external_directory(workspace)):
+            raise ValueError('Review page cache must remain within the selected workspace')
+        no_links(cache_directory)
+        cache_directory.mkdir(parents=True, exist_ok=True)
+    renderer_sha = digest_bytes((ROOT/'shared/scripts/pdf_assets.py').read_bytes())
     ordinals = {sid:i+1 for i,sid in enumerate(sorted(declared))}
     for sid in sorted(declared):
         with pdfium.PdfDocument(source_payloads[sid]) as document:
             for source_id, page_no in sorted(p for p in needed if p[0]==sid):
                 name=f'pages/source-{ordinals[sid]:04d}-p{page_no:04d}.png'
-                page=document[page_no-1]
-                try:render_crop(page,output/name,scale=scale)
-                finally:page.close()
+                key = digest_bytes(json.dumps([declared[sid]['sha256'], page_no, scale, renderer_sha,
+                                               str(pdfium.PYPDFIUM_INFO), str(pdfium.PDFIUM_INFO)]).encode())
+                cached = cache_directory/(key+'.png') if cache_directory else None
+                descriptor = cache_directory/(key+'.json') if cache_directory else None
+                reused = False
+                if cached and cached.is_file() and descriptor.is_file():
+                    no_links(cached); no_links(descriptor)
+                    try:
+                        record = json.loads(descriptor.read_text(encoding='utf-8'))
+                        reused = record == {'key': key, 'sha256': digest_bytes(cached.read_bytes())}
+                    except (ValueError, OSError):
+                        pass
+                (output/name).parent.mkdir(parents=True, exist_ok=True)
+                if reused:
+                    shutil.copyfile(cached, output/name)
+                    pages_reused += 1
+                else:
+                    page=document[page_no-1]
+                    try:render_crop(page,output/name,scale=scale)
+                    finally:page.close()
+                    pages_rendered += 1
+                    if cached:
+                        shutil.copyfile(output/name, cached)
+                        descriptor.write_text(json.dumps({'key':key,'sha256':digest_bytes(cached.read_bytes())}),encoding='utf-8')
                 width,height=geometry[(sid,page_no)]
                 pages.append({'source_id':sid,'page':page_no,'width':width,'height':height,'path':name,'sha256':digest_bytes((output/name).read_bytes())})
     report={'candidate':data,'candidate_sha256':digest_bytes(candidate_payload),'pages':pages,
@@ -159,5 +197,6 @@ def build_review(candidate, sources, output, scale=1.5, *, workspace=None, conte
     inventory={k:v for k,v in report.items() if k!='candidate'}
     inventory['sources']=[{'id':sid,'sha256':source['sha256'],'name':source['name']} for sid,source in declared.items()]
     (output/'review-inventory.json').write_text(json.dumps(inventory,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
-    return {'html':str(output/'index.html'),'pages_rendered':len(pages),'questions':len(data['questions']),
+    return {'html':str(output/'index.html'),'pages_rendered':pages_rendered,
+            'pages_reused':pages_reused,'pages_included':len(pages),'questions':len(data['questions']),
             'certification':'not_performed','review_status':'pending'}
