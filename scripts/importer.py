@@ -19,7 +19,7 @@ sys.path.insert(0, str(ROOT / 'shared/scripts'))
 from lab import (artifact_path, configure_workspace, digest, event, inside, json_digest,
                  no_links, now, publication_path, read, relative_path, write)
 from package_io import inspect_package, pack, validate
-from pdf_assets import apply_crops, prepare_catalog, source_record
+from pdf_assets import apply_crops, prepare_catalog, source_record, extract_styled_text
 from direct_gate import validate_direct_input
 from output_policy import require_official_final
 from evidence import field_paths, validate_citations, validate_geometry, validate_mapping, validate_source_fields
@@ -433,11 +433,9 @@ def source_text(folder, source_id, pages):
         for number in sorted(set(pages)):
             page = pdf[number-1]
             try:
-                text = page.get_textpage()
-                try: value = text.get_text_range()
-                finally: text.close()
+                extracted = extract_styled_text(page)
             finally: page.close()
-            result.append({'page':number,'text':value})
+            result.append({'page':number, **extracted})
     return {'source_id':source_id,'sha256':source['sha256'],'pages':result,
             'limitation':'Native extraction only: visually verify association, reading order, tables, accents and mathematical layout; never ingest this as verified content.'}
 

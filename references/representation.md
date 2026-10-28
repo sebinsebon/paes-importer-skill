@@ -2,6 +2,14 @@
 
 El [contrato de contenido](../shared/references/content-contract.md) define los bloques. Mantén separadas prosa y matemática sin perder espacios o puntuación.
 
+## Negrita y cursiva
+
+Convención opcional de presentación sobre `text.text` de contenido 0.2.0: `<b>texto</b>` para negrita y `<i>texto</i>` para cursiva. No añade campos ni cambia el esquema o la versión del paquete. Amplía la interpretación de la prosa literal descrita por el contrato; los lectores antiguos pueden mostrar las etiquetas. Solo se reconocen estos cuatro marcadores exactos, en minúscula, sin atributos, equilibrados y correctamente anidados dentro de un mismo bloque. Si hay un marcador permitido sin pareja o cruzado, todo el bloque queda literal; otras etiquetas y entidades HTML quedan literales y nunca se ejecutan. Los marcadores exactos quedan reservados: si el PDF los muestra literalmente, conserva el texto y documenta esa ambigüedad antes de entregar.
+
+Ejemplo: `{"type":"text","text":"¿Cuál es <b>INCORRECTA</b>?"}`. Para ambos estilos: `<b><i>texto</i></b>`. Aplica a enunciados, alternativas, explicaciones y bloques de texto de celdas. No coloques etiquetas dentro de `math.latex`, recursos, identificadores ni metadatos. No las extiendas entre bloques. Conserva puntuación, espacios, saltos y todas las alternativas; no conviertas fórmulas ni tablas a texto para aplicar formato.
+
+`source-text --run … --source-id … --page …` conserva `text` nativo y entrega `styled_text` con indicios por propiedades de fuente de PDFium (`font`, `weight`, `flags`), posiciones y cajas en `runs`. Es una ayuda para transcribir la prosa: separa matemáticas y estructura mediante lectura visual. `format_status:pending` nunca acredita fidelidad. Metadatos desconocidos, contradictorios o alineación de glifos incierta dejan el texto sin el formato incierto y emiten `warnings`. Comprueba negrita y cursiva contra la página, incluida la del solucionario. Conserva `TEXT_FORMAT_PENDING` en `issues` si no puedes determinar el estilo; no declares Gold mientras siga pendiente. En escaneos sin capa textual no hay estilos extraíbles: transcribe visualmente solo el formato observado con claridad, nunca inferido por OCR o capitalización.
+
 ## Variables y expresiones
 
 «Si m y n son enteros, calcula m/n» se representa así:
