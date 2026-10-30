@@ -5,11 +5,87 @@ import re
 import os
 import shutil
 import uuid
+import ctypes
 from pathlib import Path
 
 import pypdfium2 as pdfium
 
 from lab import artifact_path, bbox, digest, inside, json_digest, read, write
+
+
+def font_style(name, flags, weight):
+    """Conservative PDF font hints; None means inspect the rendered source."""
+    name = re.sub(r'^[A-Z]{6}\+', '', name or '').lower()
+    named_bold = bool(re.search(r'bold|black|heavy|demi|semibold', name))
+    named_italic = bool(re.search(r'italic|oblique|slanted', name))
+    regular = bool(re.search(r'regular|roman|normal|book', name) or name in
+                   ('helvetica', 'arial', 'courier', 'timesnewromanpsmt'))
+    bold = True if named_bold or weight >= 700 or flags & (1 << 18) else False if regular or 100 <= weight <= 500 else None
+    if named_bold and 100 <= weight <= 500:
+        bold = None  # Conflicting metadata must not invent emphasis.
+    italic = True if named_italic or flags & (1 << 6) else False if regular or named_bold else None
+    return bold, italic
+
+
+def extract_styled_text(page):
+    """Exact native text plus advisory runs; no OCR or question reconstruction.
+
+    FPDFText_GetFontInfo/GetFontWeight are experimental PDFium APIs. Preserve
+    the unmodified whole-page extraction if per-character mapping disagrees.
+    Unknown font properties never remove or replace a character.
+    """
+    textpage = page.get_textpage()
+    try:
+        plain = textpage.get_text_range()
+        chars = [textpage.get_text_range(i, 1) for i in range(textpage.count_chars())]
+        if ''.join(chars) != plain:
+            return {'text': plain, 'styled_text': plain, 'runs': [], 'format_status': 'pending',
+                    'warnings': ['TEXT_STYLE_ALIGNMENT_PENDING']}
+        runs = []
+        width, height = page.get_size()
+        for index, char in enumerate(chars):
+            flags = ctypes.c_int()
+            size = pdfium.raw.FPDFText_GetFontInfo(textpage, index, None, 0, None)
+            name = ''
+            if 0 < size <= 65536:
+                buffer = ctypes.create_string_buffer(size)
+                actual = pdfium.raw.FPDFText_GetFontInfo(textpage, index, buffer, size, ctypes.byref(flags))
+                if actual and actual <= size:
+                    name = buffer.value.decode('utf-8', errors='replace')
+            weight = pdfium.raw.FPDFText_GetFontWeight(textpage, index)
+            bold, italic = font_style(name, flags.value, weight)
+            if not char.strip():
+                bold, italic = False, False
+            try:
+                rect = visible_bounds(textpage.get_charbox(index), page.get_rotation(), width, height)
+            except (ValueError, RuntimeError):
+                rect = None
+            style = {'font': name, 'flags': flags.value, 'weight': weight, 'bold': bold, 'italic': italic}
+            if runs and all(runs[-1][key] == value for key, value in style.items()):
+                run = runs[-1]
+                run['text'] += char
+                run['end'] = index + 1
+                if rect and run['bbox']:
+                    old = run['bbox']
+                    run['bbox'] = [min(old[0], rect[0]), min(old[1], rect[1]), max(old[2], rect[2]), max(old[3], rect[3])]
+            else:
+                runs.append({**style, 'text': char, 'start': index, 'end': index + 1, 'bbox': rect})
+        warnings = []
+        if not plain.strip():
+            warnings.append('NO_NATIVE_TEXT_VISUAL_TRANSCRIPTION_REQUIRED')
+        if any((r['bold'] is None or r['italic'] is None) and r['text'].strip() for r in runs):
+            warnings.append('FONT_STYLE_PENDING')
+        # These four strings are reserved by the prose convention. Preserve
+        # literal source content and require a representation decision by eye.
+        reserved = bool(re.search(r'</?[bi]>', plain))
+        if reserved:
+            warnings.append('LITERAL_STYLE_MARKERS_PENDING')
+        styled = ''.join(('<b>' if r['bold'] else '') + ('<i>' if r['italic'] else '') + r['text'] +
+                         ('</i>' if r['italic'] else '') + ('</b>' if r['bold'] else '') for r in runs)
+        return {'text': plain, 'styled_text': plain if reserved else styled, 'runs': runs,
+                'format_status': 'pending', 'warnings': warnings}
+    finally:
+        textpage.close()
 
 
 def render_crop(page, output, box=None, scale=1.5):

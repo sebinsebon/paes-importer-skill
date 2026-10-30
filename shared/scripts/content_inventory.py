@@ -5,6 +5,19 @@ from lab import bbox, blocks_in
 from evidence import contains, cover_regions, rectangle_covered, overlaps
 
 
+def plain_prose(text):
+    """Read the optional balanced b/i convention without treating it as HTML."""
+    stack = []
+    for token in re.findall(r'</?[bi]>', text):
+        tag = token[-2]
+        if token.startswith('</'):
+            if not stack or stack.pop() != tag:
+                return text
+        else:
+            stack.append(tag)
+    return text if stack else re.sub(r'</?[bi]>', '', text)
+
+
 def with_solution_inventory(mapping, key_entry=None):
     """Combine frozen observations without copying or maintaining runtime code."""
     record = copy.deepcopy(mapping)
@@ -195,7 +208,7 @@ def validate_inventory(question, record, candidate):
                     raise ValueError(prefix + ': TABLE_SHAPE_MISMATCH')
                 if 'headers' in shape:
                     headers = [' '.join(b.get('text', b.get('latex', '')) for b in blocks_in(cell)).strip() for cell in table['rows'][0]]
-                    normalize = lambda text: ' '.join(text.split())
+                    normalize = lambda text: ' '.join(plain_prose(text).split())
                     if [normalize(h) for h in headers] != [normalize(h) for h in shape['headers']]:
                         raise ValueError(prefix + ': TABLE_HEADERS_MISMATCH')
 
@@ -206,6 +219,7 @@ def bare_variable(text, symbol):
     An isolated span or a letter next to an operator is still mathematical.
     Ambiguous prose is resolved by the source cotejo, never by rewriting it.
     """
+    text = plain_prose(text)
     token = r'(?<!\w)' + re.escape(symbol) + r'(?!\w)'
     if not re.search(token, text):
         return False

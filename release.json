@@ -16,7 +16,7 @@
     },
     {
       "path": "SKILL.md",
-      "sha256": "61da2237f3d6b7fa3f842f5abf0171d347bf7b101a9f0895248e7b95a3cbda5c"
+      "sha256": "a5dd24d360478b2e2f1bdfe31fb3662270aa83df7642061c8a5a4cdef4c9e4f3"
     },
     {
       "path": "flows/01-chat-con-solucionario/WORKFLOW.md",
@@ -52,7 +52,7 @@
     },
     {
       "path": "references/representation.md",
-      "sha256": "84d24ffb3e4d08e121b7808695be957711709a4f2a96075748ef8636a8e46085"
+      "sha256": "a3503e013453ca7e55d7cb8cf007b7d08341fd0fe7e49779eec6d2e85ea29d9a"
     },
     {
       "path": "references/workflow.md",
@@ -76,7 +76,7 @@
     },
     {
       "path": "scripts/importer.py",
-      "sha256": "8a42ef156c134af3fa63e3a474da0489926a28c50bb21c8e6d591f0629ba3cfd"
+      "sha256": "2a57673e20c27647d01a54a6cd39207c313e7fd5be004e922539887c06aa4cab"
     },
     {
       "path": "scripts/policy.py",
@@ -152,7 +152,7 @@
     },
     {
       "path": "shared/scripts/content_inventory.py",
-      "sha256": "e9af4b793dc592a50dbb78738cd5dd7e005602b3c61cfc8a32a9b72549a506f3"
+      "sha256": "1c195e46794f8c1857c8d4cafc63442623fb96bf0f90abfc0890c8fc2a40b853"
     },
     {
       "path": "shared/scripts/curriculum.py",
@@ -208,7 +208,7 @@
     },
     {
       "path": "shared/scripts/pdf_assets.py",
-      "sha256": "3392399d6fec1e5b4113c5c9af3b5eb6f70916e80d33c48b9a19c8790f40a0e4"
+      "sha256": "6c237c48bb535dbb0527353772bb3121e17dc7586da98090dc90b64b248caeef"
     },
     {
       "path": "shared/scripts/pipeline.py",
@@ -236,7 +236,7 @@
     },
     {
       "path": "viewer/block-renderer.js",
-      "sha256": "78f784af71bc0512b1778d1252b5460eb9f8d2bae3df6303ed92c9e61669a1c7"
+      "sha256": "c8339cc378844693df2ab004dffe593b9f1dd9226fffc6f14c3ef03acd34d4c2"
     },
     {
       "path": "viewer/package-reader.js",

@@ -29,6 +29,8 @@ Lee solo el flujo elegido y sus referencias necesarias. Un chat web con ejecuci�
 
 Conserva enunciados, orden, alternativas, tablas, figuras y matemática del ensayo. Usa el solucionario correspondiente para respuestas y desarrollos: explicaciones como texto y matemática editables; imágenes para diagramas necesarios. La pauta no reduce el cotejo del ensayo.
 
+En prosa `text.text`, conserva negrita con `<b>…</b>` y cursiva con `<i>…</i>`, también en alternativas, celdas y solucionarios. Solo pares completos, sin atributos y dentro del mismo bloque; pueden anidarse. Consulta [representación](references/representation.md#negrita-y-cursiva). Usa `source-text` para consultar `styled_text`, `runs` y `warnings` del texto digital y coteja siempre con la página: son indicios de fuente, no una transcripción de fórmulas o tablas. Si el formato es incierto, conserva todas las palabras y espacios y registra `TEXT_FORMAT_PENDING` en `issues` hasta revisarlo visualmente. En escaneos no inventes formato por OCR, mayúsculas o contexto. Ningún indicio automático permite declarar Gold ni omitir el cotejo.
+
 Transcribe íntegro el desarrollo existente, sin resumir, reformular ni resolverlo de nuevo. Matemática dentro de párrafos: `math` con `display:false`; fórmulas independientes: `display:true`. Conserva párrafos y saltos del original. Usa IA para resolver o explicar solo lo que falte; documenta conflictos con la fuente.
 
 **Gold significa fidelidad visual completa al ensayo y al solucionario disponible**, con asociación correcta, integridad y procedencia. Exige cotejos vigentes de todas las preguntas; una clave por sí sola no basta. No exige segunda resolución matemática ni estados `verified`.
